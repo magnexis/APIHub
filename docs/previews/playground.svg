@@ -1,0 +1,37 @@
+<svg width="1200" height="720" viewBox="0 0 1200 720" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="720" rx="36" fill="#F7F9FC"/>
+  <rect x="24" y="24" width="1152" height="672" rx="28" fill="white" stroke="#DDE6F3"/>
+  <rect x="48" y="48" width="280" height="624" rx="24" fill="#F8FAFE" stroke="#E3EAF6"/>
+  <rect x="352" y="48" width="560" height="624" rx="24" fill="#FFFFFF" stroke="#E3EAF6"/>
+  <rect x="936" y="48" width="216" height="624" rx="24" fill="#F8FAFE" stroke="#E3EAF6"/>
+  <text x="80" y="94" fill="#111827" font-family="Inter, Arial, sans-serif" font-size="24" font-weight="700">Playground 2.0</text>
+  <rect x="80" y="134" width="220" height="50" rx="16" fill="#EAF2FF"/>
+  <rect x="80" y="196" width="220" height="50" rx="16" fill="#F8FAFE"/>
+  <rect x="80" y="258" width="220" height="50" rx="16" fill="#F8FAFE"/>
+  <rect x="80" y="320" width="220" height="50" rx="16" fill="#F8FAFE"/>
+  <text x="104" y="166" fill="#2563EB" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="600">Method / URL</text>
+  <text x="104" y="228" fill="#475569" font-family="Inter, Arial, sans-serif" font-size="18">Headers</text>
+  <text x="104" y="290" fill="#475569" font-family="Inter, Arial, sans-serif" font-size="18">JSON Body</text>
+  <text x="104" y="352" fill="#475569" font-family="Inter, Arial, sans-serif" font-size="18">Send / Save</text>
+  <rect x="384" y="82" width="494" height="52" rx="18" fill="#F3F7FD" stroke="#DDE6F3"/>
+  <text x="408" y="114" fill="#6B7280" font-family="Inter, Arial, sans-serif" font-size="18">POST https://api.magnexis.test/api/dev/json-formatter</text>
+  <rect x="384" y="156" width="494" height="204" rx="24" fill="#0F172A"/>
+  <text x="408" y="198" fill="#E2E8F0" font-family="JetBrains Mono, Consolas, monospace" font-size="16">{</text>
+  <text x="432" y="230" fill="#93C5FD" font-family="JetBrains Mono, Consolas, monospace" font-size="16">"status": "ok",</text>
+  <text x="432" y="262" fill="#93C5FD" font-family="JetBrains Mono, Consolas, monospace" font-size="16">"latencyMs": 18,</text>
+  <text x="432" y="294" fill="#93C5FD" font-family="JetBrains Mono, Consolas, monospace" font-size="16">"data": { "pretty": true }</text>
+  <text x="408" y="326" fill="#E2E8F0" font-family="JetBrains Mono, Consolas, monospace" font-size="16">}</text>
+  <rect x="384" y="384" width="494" height="116" rx="22" fill="#F8FAFE" stroke="#E3EAF6"/>
+  <text x="408" y="426" fill="#111827" font-family="Inter, Arial, sans-serif" font-size="20" font-weight="700">Response Viewer</text>
+  <text x="408" y="458" fill="#6B7280" font-family="Inter, Arial, sans-serif" font-size="15">Pretty JSON, raw payload, headers, timing, and error explanations.</text>
+  <rect x="960" y="92" width="152" height="40" rx="20" fill="#EAF2FF"/>
+  <text x="1002" y="118" fill="#2563EB" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="600">Help Panel</text>
+  <rect x="960" y="152" width="152" height="132" rx="18" fill="white" stroke="#E3EAF6"/>
+  <text x="980" y="188" fill="#111827" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700">Required fields</text>
+  <text x="980" y="216" fill="#6B7280" font-family="Inter, Arial, sans-serif" font-size="14">Body, headers, auth</text>
+  <text x="980" y="244" fill="#6B7280" font-family="Inter, Arial, sans-serif" font-size="14">Common errors</text>
+  <rect x="960" y="308" width="152" height="132" rx="18" fill="white" stroke="#E3EAF6"/>
+  <text x="980" y="344" fill="#111827" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700">Next APIs</text>
+  <text x="980" y="372" fill="#6B7280" font-family="Inter, Arial, sans-serif" font-size="14">Meta Tag Generator</text>
+  <text x="980" y="400" fill="#6B7280" font-family="Inter, Arial, sans-serif" font-size="14">SEO Score</text>
+</svg>

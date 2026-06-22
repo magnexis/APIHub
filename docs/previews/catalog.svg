@@ -1,0 +1,45 @@
+<svg width="1200" height="720" viewBox="0 0 1200 720" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="720" rx="36" fill="#F7F9FC"/>
+  <rect x="24" y="24" width="1152" height="672" rx="28" fill="white" stroke="#DDE6F3"/>
+  <rect x="48" y="48" width="220" height="624" rx="24" fill="#F8FAFE" stroke="#E3EAF6"/>
+  <rect x="292" y="48" width="860" height="624" rx="24" fill="#FFFFFF" stroke="#E3EAF6"/>
+  <text x="80" y="94" fill="#111827" font-family="Inter, Arial, sans-serif" font-size="24" font-weight="700">API Catalog</text>
+  <rect x="48" y="136" width="220" height="44" rx="14" fill="#EAF2FF"/>
+  <rect x="48" y="192" width="220" height="44" rx="14" fill="#F8FAFE"/>
+  <rect x="48" y="248" width="220" height="44" rx="14" fill="#F8FAFE"/>
+  <rect x="48" y="304" width="220" height="44" rx="14" fill="#F8FAFE"/>
+  <rect x="48" y="360" width="220" height="44" rx="14" fill="#F8FAFE"/>
+  <text x="68" y="164" fill="#2563EB" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="600">Developer Tools</text>
+  <text x="68" y="220" fill="#475569" font-family="Inter, Arial, sans-serif" font-size="18">AI Utilities</text>
+  <text x="68" y="276" fill="#475569" font-family="Inter, Arial, sans-serif" font-size="18">Business</text>
+  <text x="68" y="332" fill="#475569" font-family="Inter, Arial, sans-serif" font-size="18">Security</text>
+  <text x="68" y="388" fill="#475569" font-family="Inter, Arial, sans-serif" font-size="18">Web Tools</text>
+  <rect x="320" y="76" width="792" height="48" rx="18" fill="#F3F7FD" stroke="#DDE6F3"/>
+  <text x="344" y="106" fill="#6B7280" font-family="Inter, Arial, sans-serif" font-size="18">Search API names, endpoints, categories, collections, or workflows</text>
+  <rect x="320" y="152" width="242" height="168" rx="24" fill="#F8FAFE" stroke="#E3EAF6"/>
+  <rect x="578" y="152" width="242" height="168" rx="24" fill="#F8FAFE" stroke="#E3EAF6"/>
+  <rect x="836" y="152" width="276" height="168" rx="24" fill="#F8FAFE" stroke="#E3EAF6"/>
+  <text x="344" y="196" fill="#111827" font-family="Inter, Arial, sans-serif" font-size="22" font-weight="700">JSON Formatter</text>
+  <text x="344" y="228" fill="#6B7280" font-family="Inter, Arial, sans-serif" font-size="15">/api/dev/json-formatter</text>
+  <rect x="344" y="248" width="74" height="28" rx="14" fill="#EAF2FF"/>
+  <text x="364" y="267" fill="#2563EB" font-family="Inter, Arial, sans-serif" font-size="14" font-weight="600">POST</text>
+  <text x="346" y="300" fill="#475569" font-family="Inter, Arial, sans-serif" font-size="14">Open, Test, Save</text>
+  <text x="602" y="196" fill="#111827" font-family="Inter, Arial, sans-serif" font-size="22" font-weight="700">SEO Score</text>
+  <text x="602" y="228" fill="#6B7280" font-family="Inter, Arial, sans-serif" font-size="15">/api/web/seo-score</text>
+  <rect x="602" y="248" width="74" height="28" rx="14" fill="#EAF8EF"/>
+  <text x="624" y="267" fill="#15803D" font-family="Inter, Arial, sans-serif" font-size="14" font-weight="600">GET</text>
+  <text x="604" y="300" fill="#475569" font-family="Inter, Arial, sans-serif" font-size="14">Popular, Fast, Recent</text>
+  <text x="860" y="196" fill="#111827" font-family="Inter, Arial, sans-serif" font-size="22" font-weight="700">Quest Generator</text>
+  <text x="860" y="228" fill="#6B7280" font-family="Inter, Arial, sans-serif" font-size="15">/api/game/quest-generator</text>
+  <rect x="860" y="248" width="74" height="28" rx="14" fill="#FFF5E8"/>
+  <text x="883" y="267" fill="#D97706" font-family="Inter, Arial, sans-serif" font-size="14" font-weight="600">POST</text>
+  <text x="862" y="300" fill="#475569" font-family="Inter, Arial, sans-serif" font-size="14">Complexity: Medium</text>
+  <rect x="320" y="348" width="792" height="300" rx="24" fill="white" stroke="#E3EAF6"/>
+  <text x="348" y="392" fill="#111827" font-family="Inter, Arial, sans-serif" font-size="22" font-weight="700">Selected API Detail</text>
+  <rect x="348" y="418" width="320" height="38" rx="12" fill="#F8FAFE" stroke="#E3EAF6"/>
+  <rect x="348" y="470" width="720" height="120" rx="16" fill="#F8FAFE" stroke="#E3EAF6"/>
+  <rect x="680" y="418" width="128" height="38" rx="19" fill="#EAF2FF"/>
+  <text x="716" y="443" fill="#2563EB" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="600">Open</text>
+  <text x="368" y="443" fill="#6B7280" font-family="Inter, Arial, sans-serif" font-size="15">Name, description, endpoint, method, inputs, outputs</text>
+  <text x="370" y="516" fill="#6B7280" font-family="Inter, Arial, sans-serif" font-size="15">Playground 2.0, code snippets, errors, and history all in one place.</text>
+</svg>

@@ -6,6 +6,14 @@ Magnexis APIHub is a web-first API laboratory for exploring, testing, chaining, 
 
 [![React](https://img.shields.io/badge/React-UI-61dafb?logo=react&logoColor=black)](https://react.dev/) [![TypeScript](https://img.shields.io/badge/TypeScript-Strict_Types-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/) [![FastAPI](https://img.shields.io/badge/FastAPI-Backend-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/) [![Server Mode](https://img.shields.io/badge/Server_Mode-Production-003b57?logo=sqlite&logoColor=white)](https://www.sqlite.org/) [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Server_Mode-336791?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 
+## UI Preview Gallery
+
+These previews show the main product surfaces at a glance.
+
+| Dashboard | Catalog | Playground |
+| --- | --- | --- |
+| ![Magnexis APIHub dashboard preview](./docs/previews/dashboard.svg) | ![Magnexis APIHub catalog preview](./docs/previews/catalog.svg) | ![Magnexis APIHub playground preview](./docs/previews/playground.svg) |
+
 ## What This Project Is
 
 Magnexis APIHub is not an API marketplace, and it is not a wrapper around third-party providers.
