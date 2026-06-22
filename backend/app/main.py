@@ -9,8 +9,10 @@ from typing import Any
 from fastapi import Body, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
+from pathlib import Path
 
-load_dotenv()
+_BACKEND_ENV = Path(__file__).resolve().parents[1] / ".env"
+load_dotenv(_BACKEND_ENV)
 
 from .models import ApiExecuteRequest, Collection, Workflow
 from .registry import REGISTRY, api_categories, build_workflow_preview, execute_api, health_stats, registry_map, search_registry, tier_allows

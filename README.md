@@ -4,7 +4,7 @@
 
 Magnexis APIHub is a web-first API laboratory for exploring, testing, chaining, documenting, and shipping 700+ original Magnexis-built APIs.
 
-[![React](https://img.shields.io/badge/React-UI-61dafb?logo=react&logoColor=black)](https://react.dev/) [![TypeScript](https://img.shields.io/badge/TypeScript-Strict_Types-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/) [![FastAPI](https://img.shields.io/badge/FastAPI-Backend-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/) [![SQLite](https://img.shields.io/badge/SQLite-Local_Mode-003b57?logo=sqlite&logoColor=white)](https://www.sqlite.org/) [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Server_Mode-336791?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![React](https://img.shields.io/badge/React-UI-61dafb?logo=react&logoColor=black)](https://react.dev/) [![TypeScript](https://img.shields.io/badge/TypeScript-Strict_Types-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/) [![FastAPI](https://img.shields.io/badge/FastAPI-Backend-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/) [![Server Mode](https://img.shields.io/badge/Server_Mode-Production-003b57?logo=sqlite&logoColor=white)](https://www.sqlite.org/) [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Server_Mode-336791?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 
 ## What This Project Is
 
@@ -129,51 +129,40 @@ npm run seed
 
 ## Deployment Split
 
-This repository is split into two deployable parts:
+This repository is ready for a single Vercel deployment:
 
-- `frontend/` deploys to Vercel
-- `backend/` deploys to Railway
-
-### Frontend on Vercel
-
-Deploy the `frontend/` directory as a standalone Vite app.
+- The frontend is built from `frontend/`
+- The backend is exposed through the root `api/` folder
 
 Recommended Vercel settings:
 
-- Root directory: `frontend`
-- Build command: `npm run build`
-- Output directory: `dist`
+- Root directory: repository root
+- Build command: `npm --prefix frontend run build`
+- Output directory: `frontend/dist`
 
-Frontend environment variables:
+Vercel environment variables:
 
-- `VITE_MAGNEXIS_API_URL` - the public URL of your Railway backend
-
-### Backend on Railway
-
-Deploy the `backend/` directory as a standalone FastAPI service.
-
-Recommended Railway settings:
-
-- Root directory: `backend`
-- Start command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-
-Backend environment variables:
-
-- `DATABASE_URL` - Railway PostgreSQL connection string
-- `MAGNEXIS_STORAGE=postgres` - force PostgreSQL mode
-- `MAGNEXIS_ALLOWED_ORIGINS=*` - or set it to your Vercel domain if you want stricter CORS
+- `POSTGRES_URL` - PostgreSQL connection string for production storage
+- `MAGNEXIS_STORAGE=postgres` - force PostgreSQL mode in production
+- `MAGNEXIS_ALLOWED_ORIGINS=*` - allow the frontend and preview deployments to call the API
+- `SQUARE_CHECKOUT_URL` - fallback Square payment link
+- `SQUARE_CHECKOUT_URL_PRO` - Pro tier Square payment link
+- `SQUARE_CHECKOUT_URL_ENTERPRISE` - Enterprise tier Square payment link
 
 Notes:
 
-- The frontend uses hash-based routing, so refresh-safe client navigation works on Vercel without extra SPA rewrites.
-- The backend should use PostgreSQL in production because Railway’s filesystem is not a long-term database.
+- The frontend uses same-origin API calls in production, so it works with Vercel’s `api/` folder automatically.
+- The backend should use PostgreSQL in production because Vercel’s filesystem is not a long-term database.
 - The local SQLite mode remains available for development.
 
 ## Environment Variables
 
-The project expects a local `.env` file for runtime configuration.
+The project expects split environment files for runtime configuration.
 
-- `VITE_MAGNEXIS_API_URL` - frontend API base URL for browser development and hosted builds
+- `frontend/.env` for browser-facing values
+- `backend/.env` for backend and storage values
+
+- `VITE_MAGNEXIS_API_URL` - frontend API base URL for browser development; leave empty in production to use same-origin `/api`
 - `MAGNEXIS_ALLOWED_ORIGINS` - comma-separated list of frontend origins allowed to call the API
 - `POSTGRES_URL` - PostgreSQL connection string for backend deployments
 - `SQLITE_PATH` - local SQLite database file path
@@ -1317,3 +1306,4 @@ The entries below are organized by category and are intended to make the 700+ AP
 - If the backend is unreachable, verify the health endpoint and port configuration
 - If data is missing, verify the local SQLite database path and schema initialization
 - If deployment fails, verify the frontend build step and the backend CORS origins
+

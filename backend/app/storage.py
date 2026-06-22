@@ -26,15 +26,15 @@ def using_postgres() -> bool:
     storage_mode = os.getenv("MAGNEXIS_STORAGE", "").strip().lower()
     if storage_mode:
         return storage_mode == "postgres"
-    return bool(os.getenv("POSTGRES_URL", "").strip() or os.getenv("DATABASE_URL", "").strip())
+    return bool(os.getenv("POSTGRES_URL", "").strip())
 
 
 def _connect():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     if using_postgres():
         if psycopg is None:
-            raise RuntimeError("psycopg is required when POSTGRES_URL or DATABASE_URL is set")
-        dsn = os.getenv("POSTGRES_URL", "").strip() or os.getenv("DATABASE_URL", "").strip()
+            raise RuntimeError("psycopg is required when POSTGRES_URL is set")
+        dsn = os.getenv("POSTGRES_URL", "").strip()
         return psycopg.connect(dsn, row_factory=dict_row)
     conn = sqlite3.connect(SQLITE_PATH)
     conn.row_factory = sqlite3.Row
