@@ -72,7 +72,7 @@ def _checkout_url_for_tier(tier: str) -> str:
     if not url:
         raise HTTPException(
           status_code=503,
-          detail="Square checkout URL is not configured. Set SQUARE_CHECKOUT_URL_PRO or SQUARE_CHECKOUT_URL_ENTERPRISE in .env.",
+          detail="Access URL is not configured. Set the tier access links in .env.",
       )
     return url
 
@@ -385,7 +385,7 @@ def billing_checkout_start(payload: dict[str, Any]) -> dict[str, Any]:
     if not api:
         raise HTTPException(status_code=404, detail="API not found")
     if tier not in {"pro", "enterprise"}:
-        raise HTTPException(status_code=400, detail="A paid tier is required for checkout")
+        raise HTTPException(status_code=400, detail="A paid tier is required for access")
     checkout_url = _checkout_url_for_tier(tier)
     receipt = create_checkout_receipt(
         api_id=api.id,

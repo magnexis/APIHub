@@ -158,9 +158,9 @@ Backend Railway settings:
   - `POSTGRES_URL` - PostgreSQL connection string for production storage
   - `MAGNEXIS_STORAGE=postgres` - force PostgreSQL mode in production
   - `MAGNEXIS_ALLOWED_ORIGINS=https://your-frontend-project.vercel.app`
-  - `SQUARE_CHECKOUT_URL` - fallback Square payment link
-  - `SQUARE_CHECKOUT_URL_PRO` - Pro tier Square payment link
-  - `SQUARE_CHECKOUT_URL_ENTERPRISE` - Enterprise tier Square payment link
+- `SQUARE_CHECKOUT_URL` - fallback access link
+- `SQUARE_CHECKOUT_URL_PRO` - Pro tier access link
+- `SQUARE_CHECKOUT_URL_ENTERPRISE` - Enterprise tier access link
 
 Deployment checklist:
 

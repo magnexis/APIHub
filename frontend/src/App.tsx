@@ -128,14 +128,14 @@ const SUBSCRIPTION_PLANS = [
     tier: "pro" as const,
     label: "Pro",
     price: "$12/mo",
-    description: "Unlock advanced Magnexis APIs and richer workflows.",
-    highlights: ["Premium APIs", "Checkout unlocks", "Workflow chaining", "Priority support"],
+    description: "Access advanced Magnexis APIs and richer workflows.",
+    highlights: ["Premium APIs", "Access unlocks", "Workflow chaining", "Priority support"],
   },
   {
     tier: "enterprise" as const,
     label: "Enterprise",
     price: "$39/mo",
-    description: "Unlock the full registry and advanced simulations.",
+    description: "Access the full registry and advanced simulations.",
     highlights: ["Enterprise APIs", "Bulk unlocks", "Local billing records", "Team-ready"],
   },
 ] as const;
@@ -183,11 +183,11 @@ function AppShell() {
   const [collectionSearch, setCollectionSearch] = useState("");
   const [settingsDraft, setSettingsDraft] = useState<Settings>(settings);
   const [collectionTheme, setCollectionTheme] = useState("blue");
-  const [checkoutApi, setCheckoutApi] = useState<ApiDefinition | null>(null);
-  const [checkoutTier, setCheckoutTier] = useState<Settings["subscription_tier"]>("pro");
-  const [checkoutSession, setCheckoutSession] = useState<{ receipt: CheckoutReceipt; checkoutUrl: string } | null>(null);
-  const [checkoutReceipts, setCheckoutReceipts] = useState<CheckoutReceipt[]>([]);
-  const [checkoutError, setCheckoutError] = useState<string | null>(null);
+  const [accessApi, setCheckoutApi] = useState<ApiDefinition | null>(null);
+  const [accessTier, setCheckoutTier] = useState<Settings["subscription_tier"]>("pro");
+  const [accessSession, setCheckoutSession] = useState<{ receipt: CheckoutReceipt; accessUrl: string } | null>(null);
+  const [accessReceipts, setCheckoutReceipts] = useState<CheckoutReceipt[]>([]);
+  const [accessError, setCheckoutError] = useState<string | null>(null);
   const [coinApi, setCoinApi] = useState<ApiDefinition | null>(null);
   const [coinReason, setCoinReason] = useState<"tier" | "rate">("tier");
   const [signupDraft, setSignupDraft] = useState({ displayName: "", email: "" });
@@ -587,32 +587,32 @@ function AppShell() {
   }
 
   async function beginCheckout() {
-    const api = checkoutApi;
+    const api = accessApi;
     if (!api) {
       return;
     }
     setCheckoutError(null);
     try {
-      const session = await startCheckout({ apiId: api.id, tier: checkoutTier as "pro" | "enterprise" });
+      const session = await startCheckout({ apiId: api.id, tier: accessTier as "pro" | "enterprise" });
       setCheckoutSession(session);
       setCheckoutReceipts((current) => [session.receipt, ...current.filter((item) => item.id !== session.receipt.id)]);
-      openExternalUrl(session.checkoutUrl);
+      openExternalUrl(session.accessUrl);
     } catch (error) {
-      setCheckoutError(error instanceof Error ? error.message : "Unable to start Square checkout");
+      setCheckoutError(error instanceof Error ? error.message : "Unable to start access flow");
     }
   }
 
   async function finalizeCheckout() {
-    if (!checkoutSession) {
+    if (!accessSession) {
       return;
     }
     setCheckoutError(null);
     try {
-      const updated = await completeCheckout({ receiptId: checkoutSession.receipt.id });
+      const updated = await completeCheckout({ receiptId: accessSession.receipt.id });
       setSettings(updated.settings);
       setSettingsDraft(updated.settings);
       setCheckoutReceipts((current) => current.map((receipt) => (receipt.id === updated.receipt.id ? updated.receipt : receipt)));
-      const api = checkoutApi;
+      const api = accessApi;
       setCheckoutSession(null);
       setCheckoutApi(null);
       if (api) {
@@ -621,7 +621,7 @@ function AppShell() {
         navigate({ view: "playground", apiId: api.id });
       }
     } catch (error) {
-      setCheckoutError(error instanceof Error ? error.message : "Unable to complete checkout");
+      setCheckoutError(error instanceof Error ? error.message : "Unable to complete access flow");
     }
   }
 
@@ -1176,18 +1176,18 @@ function AppShell() {
         />
       )}
 
-      {checkoutApi && (
+      {accessApi && (
         <CheckoutModal
-          api={checkoutApi}
-          selectedTier={checkoutTier}
+          api={accessApi}
+          selectedTier={accessTier}
           onClose={() => setCheckoutApi(null)}
           onSelectTier={setCheckoutTier}
           onStartCheckout={() => void beginCheckout()}
           onCompleteCheckout={() => void finalizeCheckout()}
           currentTier={settings.subscription_tier}
-          checkoutSession={checkoutSession}
-          recentReceipts={checkoutReceipts}
-          errorMessage={checkoutError}
+          accessSession={accessSession}
+          recentReceipts={accessReceipts}
+          errorMessage={accessError}
         />
       )}
 
@@ -2056,7 +2056,7 @@ function ApiDetailPanel({
               onClick={() => onRequestCheckout(api.requiredTier)}
               className={`rounded-full px-4 py-2 text-xs font-medium ${canAccessApi(api, currentTier) ? "border border-slate-200/70 bg-white text-slate-500" : "bg-amber-400 text-white"}`}
             >
-              {canAccessApi(api, currentTier) ? `Plan: ${tierLabel(api.requiredTier)}` : `Unlock ${tierLabel(api.requiredTier)}`}
+              {canAccessApi(api, currentTier) ? `Plan: ${tierLabel(api.requiredTier)}` : `Access ${tierLabel(api.requiredTier)}`}
             </button>
           </div>
         </div>
@@ -2255,7 +2255,7 @@ function PlaygroundPage({
             onClick={onRun}
             className={`rounded-full px-5 py-3 text-sm font-medium text-white ${canAccessApi(api, currentTier) ? "bg-blue-400 shadow-[0_6px_14px_rgba(66,133,244,0.08)]" : "bg-amber-300 shadow-[0_6px_14px_rgba(245,158,11,0.07)]"}`}
           >
-            {loading ? "Running..." : canAccessApi(api, currentTier) ? "Send" : `Unlock ${tierLabel(api.requiredTier)}`}
+            {loading ? "Running..." : canAccessApi(api, currentTier) ? "Send" : `Access ${tierLabel(api.requiredTier)}`}
           </button>
         </div>
         <div className="mt-5 flex flex-wrap gap-2 text-xs text-slate-500">
@@ -2337,7 +2337,7 @@ function PlaygroundPage({
             onClick={() => onRequestCheckout(api.requiredTier)}
             className={`mt-4 w-full rounded-full px-4 py-3 text-sm font-medium ${canAccessApi(api, currentTier) ? "border border-slate-200/70 bg-white text-slate-700" : "bg-amber-400 text-white"}`}
           >
-              {canAccessApi(api, currentTier) ? `Plan: ${tierLabel(api.requiredTier)}` : `Unlock ${tierLabel(api.requiredTier)}`}
+              {canAccessApi(api, currentTier) ? `Plan: ${tierLabel(api.requiredTier)}` : `Access ${tierLabel(api.requiredTier)}`}
             </button>
           </section>
         </aside>
@@ -2420,7 +2420,7 @@ function CheckoutModal({
   onStartCheckout,
   onCompleteCheckout,
   currentTier,
-  checkoutSession,
+  accessSession,
   recentReceipts,
   errorMessage,
 }: {
@@ -2431,12 +2431,12 @@ function CheckoutModal({
   onStartCheckout: () => void;
   onCompleteCheckout: () => void;
   currentTier: Settings["subscription_tier"];
-  checkoutSession: { receipt: CheckoutReceipt; checkoutUrl: string } | null;
+  accessSession: { receipt: CheckoutReceipt; accessUrl: string } | null;
   recentReceipts: CheckoutReceipt[];
   errorMessage: string | null;
 }) {
   const selectedPlan = SUBSCRIPTION_PLANS.find((plan) => plan.tier === selectedTier) ?? SUBSCRIPTION_PLANS[0];
-  const receipt = checkoutSession?.receipt ?? null;
+  const receipt = accessSession?.receipt ?? null;
   const receiptCopy = receipt
     ? [
         `Receipt: ${receipt.receiptNumber}`,
@@ -2453,10 +2453,10 @@ function CheckoutModal({
       <div className="w-full max-w-5xl rounded-[32px] border border-slate-200/60 bg-white shadow-[0_18px_44px_rgba(15,23,42,0.14)]">
         <div className="grid gap-0 lg:grid-cols-[1.05fr_0.95fr]">
           <div className="p-6 md:p-8">
-            <div className="inline-flex rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-500">Checkout flow</div>
-            <h3 className="mt-4 text-3xl font-semibold tracking-tight text-slate-900">{receipt ? "Square checkout ready" : `Unlock ${api.name}`}</h3>
+            <div className="inline-flex rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-500">Access flow</div>
+            <h3 className="mt-4 text-3xl font-semibold tracking-tight text-slate-900">{receipt ? "Access link ready" : `Access ${api.name}`}</h3>
             <p className="mt-3 text-sm leading-7 text-slate-600">
-              This API requires <span className="font-semibold text-slate-900">{tierLabel(api.requiredTier)}</span>. We now send you to Square first, then store a receipt before the tier changes.
+              This API requires <span className="font-semibold text-slate-900">{tierLabel(api.requiredTier)}</span>. We open the access link first, then store a receipt before the tier changes.
             </p>
 
             <div className="mt-5 rounded-[24px] border border-slate-200/60 bg-slate-50 p-4">
@@ -2510,7 +2510,7 @@ function CheckoutModal({
                     ))}
                   </ul>
                   <div className="mt-5 rounded-[22px] bg-blue-50 p-4 text-sm text-slate-700">
-                    Checkout opens a Square payment link first. We only unlock the tier after the receipt is created and payment is confirmed.
+                    Access opens a tier link first. We only unlock the tier after the receipt is created and confirmation is stored.
                   </div>
                   {errorMessage && (
                     <div className="mt-4 rounded-[18px] border border-rose-200/70 bg-rose-50 p-4 text-sm text-rose-700">
@@ -2522,7 +2522,7 @@ function CheckoutModal({
                       Cancel
                     </button>
                     <button type="button" onClick={onStartCheckout} className="flex-1 rounded-full bg-blue-400 px-4 py-3 text-sm font-medium text-white shadow-[0_6px_14px_rgba(66,133,244,0.08)]">
-                      Continue to Square
+                      Continue
                     </button>
                   </div>
                 </>
@@ -2538,11 +2538,11 @@ function CheckoutModal({
                       <InfoRow label="Amount" value={formatCurrency(receipt.amountCents, receipt.currency)} />
                       <InfoRow label="Status" value={capitalize(receipt.status)} />
                       <InfoRow label="Provider" value={capitalize(receipt.provider)} />
-                      <InfoRow label="Checkout URL" value={receipt.checkoutUrl} mono />
+                      <InfoRow label="Access URL" value={receipt.accessUrl} mono />
                     </div>
                   </div>
-                  <div className="mt-5 rounded-[22px] bg-blue-50 p-4 text-sm text-slate-700">
-                    Open the Square link, finish payment, then click the confirmation button to apply the subscription tier locally.
+                    <div className="mt-5 rounded-[22px] bg-blue-50 p-4 text-sm text-slate-700">
+                    Open the access link, finish the confirmation step, then click the confirmation button to apply the subscription tier locally.
                   </div>
                   <div className="mt-5 flex flex-wrap gap-3">
                     <button type="button" onClick={onClose} className="flex-1 rounded-full border border-slate-200/70 bg-white px-4 py-3 text-sm">
@@ -2550,13 +2550,13 @@ function CheckoutModal({
                     </button>
                     <button
                       type="button"
-                      onClick={() => openExternalUrl(receipt.checkoutUrl)}
+                      onClick={() => openExternalUrl(receipt.accessUrl)}
                       className="flex-1 rounded-full border border-blue-100 bg-white px-4 py-3 text-sm font-medium text-blue-500"
                     >
-                      Open Square again
+                      Open link again
                     </button>
                     <button type="button" onClick={onCompleteCheckout} className="flex-1 rounded-full bg-blue-400 px-4 py-3 text-sm font-medium text-white shadow-[0_6px_14px_rgba(66,133,244,0.08)]">
-                      I completed payment
+                      I completed confirmation
                     </button>
                   </div>
                   <div className="mt-5 rounded-[22px] border border-slate-200/60 bg-white p-4">
@@ -2600,7 +2600,7 @@ function CoinModal({
   onClose: () => void;
   onSpend: () => void;
 }) {
-  const title = reason === "tier" ? "Use your Magnexis API Coin to unlock this API" : "Use your Magnexis API Coin to bypass the rate limit once";
+  const title = reason === "tier" ? "Use your Magnexis API Coin to access this API" : "Use your Magnexis API Coin to raise the rate limit once";
   return (
     <div className="fixed inset-0 z-[65] grid place-items-center bg-slate-950/30 p-4 backdrop-blur-sm">
       <div className="w-full max-w-2xl overflow-hidden rounded-[32px] border border-slate-200/60 bg-white shadow-[0_18px_44px_rgba(15,23,42,0.14)]">
@@ -2662,7 +2662,7 @@ function SignupScreen({
           />
         </div>
         <div className="mt-4 rounded-[24px] border border-slate-200/60 bg-slate-50 p-4 text-sm text-slate-600">
-          Your account starts with <span className="font-semibold text-slate-900">1 API Coin</span>. You can spend it to unlock one premium or rate-limited API execution.
+          Your account starts with <span className="font-semibold text-slate-900">1 API Coin</span>. You can spend it to access one premium or rate-limited API execution.
         </div>
         <div className="mt-5 flex justify-end gap-3">
           <button
