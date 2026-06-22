@@ -1,0 +1,8 @@
+name,sku,category,price_cents,currency,description,unlock_scope
+Magnexis API Coin,mag-coin,entitlement,100,USD,Single-use credit that unlocks one premium or rate-limited API execution,coin
+Pro Access,mag-pro-access,entitlement,1200,USD,Unlocks Magnexis Pro tier APIs and premium workflows,tier
+Enterprise Access,mag-enterprise-access,entitlement,3900,USD,Unlocks Magnexis Enterprise tier APIs and advanced registry features,tier
+Developer Starter Pack,mag-dev-starter-pack,pack,1500,USD,Bundle of core developer utilities and quick tools,pack
+Web Builder Pack,mag-web-builder-pack,pack,1500,USD,Bundle of SEO and web publishing APIs,pack
+Game Dev Pack,mag-game-dev-pack,pack,1500,USD,Bundle of game creation and simulation APIs,pack
+Business Pack,mag-business-pack,pack,1500,USD,Bundle of planning, finance, and productivity APIs,pack

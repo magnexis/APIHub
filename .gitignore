@@ -41,3 +41,4 @@ backend/data/registry.json
 private/
 private-core/
 *.pkg
+.csv
