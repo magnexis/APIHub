@@ -1,0 +1,18 @@
+{
+  "name": "magnexis-apihub",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node ./scripts/dev-web.cjs",
+    "build": "npm --prefix frontend run build",
+    "seed": "python -m backend.app.seed",
+    "preview": "npm --prefix frontend run preview"
+  },
+  "dependencies": {
+    "dotenv": "^16.6.1"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.4"
+  }
+}
