@@ -129,22 +129,23 @@ npm run seed
 
 ## Deployment Split
 
-This repository is designed for two separate Vercel projects from the same GitHub repo:
+This repository is designed for a split deployment:
 
-- Frontend project root: `frontend/`
-- Backend project root: `backend/`
+- Frontend project root: `frontend/` on Vercel
+- Backend project root: `backend/` on Railway
 
 Frontend Vercel settings:
 
 - Root directory: `frontend`
 - Build command: `npm run build`
 - Output directory: `dist`
-- Environment variable: `VITE_MAGNEXIS_API_URL=https://your-backend-project.vercel.app`
+- Environment variable: `VITE_MAGNEXIS_API_URL=https://your-railway-backend.up.railway.app`
 
-Backend Vercel settings:
+Backend Railway settings:
 
 - Root directory: `backend`
-- Python entrypoint: `backend/api/index.py`
+- Start command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+- Railway config file: `backend/railway.toml`
 - Environment variables:
   - `POSTGRES_URL` - PostgreSQL connection string for production storage
   - `MAGNEXIS_STORAGE=postgres` - force PostgreSQL mode in production
@@ -153,11 +154,21 @@ Backend Vercel settings:
   - `SQUARE_CHECKOUT_URL_PRO` - Pro tier Square payment link
   - `SQUARE_CHECKOUT_URL_ENTERPRISE` - Enterprise tier Square payment link
 
+Deployment checklist:
+
+1. Create the Vercel project from the repo root and set the root directory to `frontend`.
+2. Use `npm run build` as the Vercel build command and `dist` as the output directory.
+3. Set `VITE_MAGNEXIS_API_URL` in the Vercel project to your Railway backend URL.
+4. Create the Railway service from the same repo and set the root directory to `backend`.
+5. Let Railway use `backend/railway.toml` or set the start command to `uvicorn app.main:app --host 0.0.0.0 --port $PORT`.
+6. Add the backend Railway environment variables listed above.
+7. Set `MAGNEXIS_ALLOWED_ORIGINS` on Railway to your Vercel frontend URL.
+
 Notes:
 
 - The frontend should call the backend through `VITE_MAGNEXIS_API_URL` in production.
-- The backend should use PostgreSQL in production because Vercel’s filesystem is not a long-term database.
-- Local SQLite mode remains available for development and desktop-style local runs.
+- The backend should use PostgreSQL in production because Railway's local filesystem is not the long-term database.
+- Local SQLite mode remains available for development and local runs.
 
 ## Environment Variables
 
@@ -166,7 +177,7 @@ The project expects split environment files for runtime configuration.
 - `frontend/.env` for browser-facing values
 - `backend/.env` for backend and storage values
 
-- `VITE_MAGNEXIS_API_URL` - frontend API base URL; use the backend Vercel URL in production and localhost in development
+- `VITE_MAGNEXIS_API_URL` - frontend API base URL; use the Railway backend URL in production and localhost in development
 - `MAGNEXIS_ALLOWED_ORIGINS` - comma-separated list of frontend origins allowed to call the API
 - `POSTGRES_URL` - PostgreSQL connection string for backend deployments
 - `SQLITE_PATH` - local SQLite database file path
@@ -1310,4 +1321,5 @@ The entries below are organized by category and are intended to make the 700+ AP
 - If the backend is unreachable, verify the health endpoint and port configuration
 - If data is missing, verify the local SQLite database path and schema initialization
 - If deployment fails, verify the frontend build step and the backend CORS origins
+
 
