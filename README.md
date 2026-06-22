@@ -129,31 +129,35 @@ npm run seed
 
 ## Deployment Split
 
-This repository is ready for a single Vercel deployment:
+This repository is designed for two separate Vercel projects from the same GitHub repo:
 
-- The frontend is built from `frontend/`
-- The backend is exposed through the root `api/` folder
+- Frontend project root: `frontend/`
+- Backend project root: `backend/`
 
-Recommended Vercel settings:
+Frontend Vercel settings:
 
-- Root directory: repository root
-- Build command: `npm --prefix frontend run build`
-- Output directory: `frontend/dist`
+- Root directory: `frontend`
+- Build command: `npm run build`
+- Output directory: `dist`
+- Environment variable: `VITE_MAGNEXIS_API_URL=https://your-backend-project.vercel.app`
 
-Vercel environment variables:
+Backend Vercel settings:
 
-- `POSTGRES_URL` - PostgreSQL connection string for production storage
-- `MAGNEXIS_STORAGE=postgres` - force PostgreSQL mode in production
-- `MAGNEXIS_ALLOWED_ORIGINS=*` - allow the frontend and preview deployments to call the API
-- `SQUARE_CHECKOUT_URL` - fallback Square payment link
-- `SQUARE_CHECKOUT_URL_PRO` - Pro tier Square payment link
-- `SQUARE_CHECKOUT_URL_ENTERPRISE` - Enterprise tier Square payment link
+- Root directory: `backend`
+- Python entrypoint: `backend/api/index.py`
+- Environment variables:
+  - `POSTGRES_URL` - PostgreSQL connection string for production storage
+  - `MAGNEXIS_STORAGE=postgres` - force PostgreSQL mode in production
+  - `MAGNEXIS_ALLOWED_ORIGINS=https://your-frontend-project.vercel.app`
+  - `SQUARE_CHECKOUT_URL` - fallback Square payment link
+  - `SQUARE_CHECKOUT_URL_PRO` - Pro tier Square payment link
+  - `SQUARE_CHECKOUT_URL_ENTERPRISE` - Enterprise tier Square payment link
 
 Notes:
 
-- The frontend uses same-origin API calls in production, so it works with Vercel’s `api/` folder automatically.
+- The frontend should call the backend through `VITE_MAGNEXIS_API_URL` in production.
 - The backend should use PostgreSQL in production because Vercel’s filesystem is not a long-term database.
-- The local SQLite mode remains available for development.
+- Local SQLite mode remains available for development and desktop-style local runs.
 
 ## Environment Variables
 
@@ -162,7 +166,7 @@ The project expects split environment files for runtime configuration.
 - `frontend/.env` for browser-facing values
 - `backend/.env` for backend and storage values
 
-- `VITE_MAGNEXIS_API_URL` - frontend API base URL for browser development; leave empty in production to use same-origin `/api`
+- `VITE_MAGNEXIS_API_URL` - frontend API base URL; use the backend Vercel URL in production and localhost in development
 - `MAGNEXIS_ALLOWED_ORIGINS` - comma-separated list of frontend origins allowed to call the API
 - `POSTGRES_URL` - PostgreSQL connection string for backend deployments
 - `SQLITE_PATH` - local SQLite database file path
