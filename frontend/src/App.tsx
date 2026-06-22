@@ -195,6 +195,7 @@ function AppShell() {
   const [savedResults, setSavedResults] = useState<SavedResult[]>(() => loadStoredResults());
   const [workflowName, setWorkflowName] = useState("");
   const [workflowDescription, setWorkflowDescription] = useState("");
+  const [startupError, setStartupError] = useState<string | null>(null);
   const collectionsImportRef = useRef<HTMLInputElement | null>(null);
   const workflowsImportRef = useRef<HTMLInputElement | null>(null);
   const selectedWorkflow = useMemo(() => workflows.find((workflow) => workflow.id === route.workflowId) ?? workflows[0] ?? null, [route.workflowId, workflows]);
@@ -203,7 +204,24 @@ function AppShell() {
   const deferredCatalogQuery = useDeferredValue(catalogQuery);
 
   useEffect(() => {
-    void loadAll();
+    void loadAll().catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : "Unable to load app data.";
+      setStartupError(message);
+      setCatalog([]);
+      setCategories([]);
+      setCollections([]);
+      setWorkflows([]);
+      setHealth({});
+      setStats({});
+      setRecommendations({ items: [] });
+      setRecentSearches([]);
+      setFavorites([]);
+      setSavedRequests([]);
+      setOnboarding({ completed: false, interests: [] });
+      setAccount({ signedUp: false, apiCoinBalance: 0, apiCoinsClaimed: 0 });
+      setCheckoutReceipts([]);
+      setShowSignup(false);
+    });
   }, []);
 
   useEffect(() => {
@@ -384,40 +402,51 @@ function AppShell() {
       loadCheckoutReceipts(),
     ]);
 
-    setCatalog(catalogResponse.items);
-    setCategories(categoriesResponse);
-    setCollections(collectionsResponse);
-    setWorkflows(workflowsResponse);
+    const catalogItems = Array.isArray(catalogResponse?.items) ? catalogResponse.items : [];
+    const categoryItems = Array.isArray(categoriesResponse) ? categoriesResponse : [];
+    const collectionItems = Array.isArray(collectionsResponse) ? collectionsResponse : [];
+    const workflowItems = Array.isArray(workflowsResponse) ? workflowsResponse : [];
+    const recommendationItems = Array.isArray(recommendationsResponse?.items) ? recommendationsResponse.items : [];
+    const searchItems = Array.isArray(recentSearchesResponse) ? recentSearchesResponse : [];
+    const favoriteItems = Array.isArray(favoritesResponse) ? favoritesResponse : [];
+    const savedRequestItems = Array.isArray(savedRequestsResponse) ? savedRequestsResponse : [];
+    const receiptItems = Array.isArray(receiptsResponse) ? receiptsResponse : [];
+
+    setStartupError(null);
+    setCatalog(catalogItems);
+    setCategories(categoryItems);
+    setCollections(collectionItems);
+    setWorkflows(workflowItems);
     setHealth(healthResponse);
     setStats(statsResponse);
-    setRecommendations(recommendationsResponse);
-    setRecentSearches(recentSearchesResponse);
-    setFavorites(favoritesResponse);
-    setSavedRequests(savedRequestsResponse);
+    setRecommendations({ items: recommendationItems });
+    setRecentSearches(searchItems);
+    setFavorites(favoriteItems);
+    setSavedRequests(savedRequestItems);
     setSettings(settingsResponse);
     setSettingsDraft(settingsResponse);
     setOnboarding(onboardingResponse);
     setAccount(accountResponse);
-    setCheckoutReceipts(receiptsResponse);
+    setCheckoutReceipts(receiptItems);
     setShowSignup(!accountResponse.signedUp);
     setSelectedApi((current) => {
       if ((route.view === "catalog" || route.view === "playground") && route.apiId) {
-        return catalogResponse.items.find((item) => item.id === route.apiId) ?? current ?? catalogResponse.items[0] ?? null;
+        return catalogItems.find((item) => item.id === route.apiId) ?? current ?? catalogItems[0] ?? null;
       }
-      return current ?? catalogResponse.items[0] ?? null;
+      return current ?? catalogItems[0] ?? null;
     });
     if (route.view === "catalog" && route.tab) {
       setActiveApiTab(route.tab);
     }
     if (route.view === "workflows") {
-      const sourceWorkflow = workflowsResponse.find((workflow) => workflow.id === route.workflowId) ?? workflowsResponse[0] ?? null;
+      const sourceWorkflow = workflowItems.find((workflow) => workflow.id === route.workflowId) ?? workflowItems[0] ?? null;
       setWorkflowDraft(buildWorkflowDraft(sourceWorkflow));
       setWorkflowName(sourceWorkflow?.name ?? "");
       setWorkflowDescription(sourceWorkflow?.description ?? "");
     } else {
-      setWorkflowDraft(buildWorkflowDraft(workflowsResponse[0] ?? null));
-      setWorkflowName(workflowsResponse[0]?.name ?? "");
-      setWorkflowDescription(workflowsResponse[0]?.description ?? "");
+      setWorkflowDraft(buildWorkflowDraft(workflowItems[0] ?? null));
+      setWorkflowName(workflowItems[0]?.name ?? "");
+      setWorkflowDescription(workflowItems[0]?.description ?? "");
     }
   }
 

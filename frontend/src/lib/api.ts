@@ -10,15 +10,21 @@ export function getApiBaseUrl(): string {
   if (API_BASE_URL.startsWith("http://") || API_BASE_URL.startsWith("https://")) {
     return API_BASE_URL;
   }
-  return window.location.origin;
+  const { hostname, protocol } = window.location;
+  if (protocol === "http:" && (hostname === "localhost" || hostname === "127.0.0.1")) {
+    return window.location.origin;
+  }
+  return "";
 }
 
 type QueryValue = string | number | boolean | null | undefined;
 
 function buildUrl(path: string, query?: Record<string, QueryValue>): string {
-  const url = API_BASE_URL.startsWith("http://") || API_BASE_URL.startsWith("https://")
-    ? new URL(path, API_BASE_URL)
-    : new URL(`${API_BASE_URL}${path}`, window.location.origin);
+  const baseUrl = getApiBaseUrl();
+  if (!baseUrl) {
+    throw new Error("Missing VITE_MAGNEXIS_API_URL. Set it to the Railway backend URL for production deployments.");
+  }
+  const url = new URL(path, baseUrl);
   if (query) {
     for (const [key, value] of Object.entries(query)) {
       if (value === undefined || value === null || value === "") {

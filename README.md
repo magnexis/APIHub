@@ -143,9 +143,9 @@ Frontend Vercel settings:
 
 Backend Railway settings:
 
-- Root directory: `backend`
+- Root directory: repository root
+- Railway uses the root `Dockerfile` to run the backend
 - Start command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-- Railway config file: `backend/railway.toml`
 - Environment variables:
   - `POSTGRES_URL` - PostgreSQL connection string for production storage
   - `MAGNEXIS_STORAGE=postgres` - force PostgreSQL mode in production
@@ -159,8 +159,8 @@ Deployment checklist:
 1. Create the Vercel project from the repo root and set the root directory to `frontend`.
 2. Use `npm run build` as the Vercel build command and `dist` as the output directory.
 3. Set `VITE_MAGNEXIS_API_URL` in the Vercel project to your Railway backend URL.
-4. Create the Railway service from the same repo and set the root directory to `backend`.
-5. Let Railway use `backend/railway.toml` or set the start command to `uvicorn app.main:app --host 0.0.0.0 --port $PORT`.
+4. Create the Railway service from the same repo and keep the root directory at the repository root.
+5. Railway should detect the root `Dockerfile` and run the backend from there.
 6. Add the backend Railway environment variables listed above.
 7. Set `MAGNEXIS_ALLOWED_ORIGINS` on Railway to your Vercel frontend URL.
 
