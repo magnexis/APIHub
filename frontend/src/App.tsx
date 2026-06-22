@@ -196,6 +196,7 @@ function AppShell() {
   const [workflowName, setWorkflowName] = useState("");
   const [workflowDescription, setWorkflowDescription] = useState("");
   const [startupError, setStartupError] = useState<string | null>(null);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const collectionsImportRef = useRef<HTMLInputElement | null>(null);
   const workflowsImportRef = useRef<HTMLInputElement | null>(null);
   const selectedWorkflow = useMemo(() => workflows.find((workflow) => workflow.id === route.workflowId) ?? workflows[0] ?? null, [route.workflowId, workflows]);
@@ -250,6 +251,10 @@ function AppShell() {
     handleHashChange();
     return () => window.removeEventListener("hashchange", handleHashChange);
   }, []);
+
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [view, route.apiId, route.collectionId, route.workflowId]);
 
   useEffect(() => {
     if (route.search !== undefined && route.search !== catalogQuery) {
@@ -809,7 +814,23 @@ function AppShell() {
 
         <div className="flex min-w-0 flex-1 flex-col">
           <header className="sticky top-0 z-20 border-b border-slate-200/60 bg-[var(--app-bg-elevated)] px-4 py-3 backdrop-blur md:px-6">
-            <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
+            <div className="flex items-center gap-3 xl:hidden">
+              <button
+                type="button"
+                onClick={() => setMobileNavOpen((current) => !current)}
+                className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-slate-200/70 bg-white text-slate-600 shadow-[0_1px_2px_rgba(15,23,42,0.05)]"
+                aria-label="Open navigation menu"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5 fill-none stroke-current stroke-[2]">
+                  <path d="M4 7h16M4 12h16M4 17h16" />
+                </svg>
+              </button>
+              <div className="min-w-0">
+                <div className="text-sm font-semibold tracking-tight text-slate-900">Magnexis APIHub</div>
+                <div className="text-xs text-slate-500">Google-style API console</div>
+              </div>
+            </div>
+            <div className="mt-3 flex flex-col gap-3 xl:mt-0 xl:flex-row xl:items-center">
               <button
                 type="button"
                 onClick={() => setSearchOpen(true)}
@@ -821,8 +842,8 @@ function AppShell() {
                     <path d="M16 16l4 4" />
                   </svg>
                 </span>
-                <span className="flex-1 text-sm">Search APIs, categories, endpoints, workflows, or tools</span>
-                <kbd className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-500">Ctrl K</kbd>
+                <span className="flex-1 text-sm">Search APIs, categories, workflows, or tools</span>
+                <kbd className="hidden rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-500 sm:inline">Ctrl K</kbd>
               </button>
               <div className="flex items-center gap-3 xl:shrink-0">
                 <button
@@ -848,6 +869,43 @@ function AppShell() {
               </div>
             </div>
           </header>
+
+          {mobileNavOpen && (
+            <div className="fixed inset-0 z-30 bg-slate-950/25 backdrop-blur-sm xl:hidden" onClick={() => setMobileNavOpen(false)}>
+              <div
+                className="absolute left-0 top-0 h-full w-[86vw] max-w-sm border-r border-slate-200/60 bg-white p-4 shadow-[0_16px_40px_rgba(15,23,42,0.14)]"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <div className="mb-4 flex items-center justify-between">
+                  <div>
+                    <div className="text-sm font-semibold tracking-tight text-slate-900">Magnexis APIHub</div>
+                    <div className="text-xs text-slate-500">Mobile navigation</div>
+                  </div>
+                  <button type="button" onClick={() => setMobileNavOpen(false)} className="rounded-full border border-slate-200/70 px-3 py-2 text-sm text-slate-600">
+                    Close
+                  </button>
+                </div>
+                <nav className="space-y-2">
+                  {NAV_ITEMS.map((item) => (
+                    <NavButton
+                      key={item.id}
+                      active={view === item.id}
+                      label={item.label}
+                      description={item.description}
+                      onClick={() => {
+                        navigate({ view: item.id });
+                        setMobileNavOpen(false);
+                      }}
+                    />
+                  ))}
+                </nav>
+                <div className="mt-4 rounded-[22px] border border-blue-100/70 bg-blue-50/70 p-4 shadow-[0_4px_10px_rgba(15,23,42,0.04)]">
+                  <div className="text-xs font-medium uppercase tracking-[0.24em] text-blue-500">Local mode</div>
+                  <div className="mt-2 text-sm text-slate-700">Port {settings.local_port}. Requests stay on your machine.</div>
+                </div>
+              </div>
+            </div>
+          )}
 
           <main className={`grid min-h-0 flex-1 gap-0 ${view === "playground" ? "xl:grid-cols-1" : "xl:grid-cols-[minmax(0,1fr)_540px]"}`}>
             <section className="min-h-0 overflow-auto px-4 py-5 md:px-6">
@@ -1501,20 +1559,20 @@ function CatalogPage({
                   <span>Tags: {api.tags.slice(0, 4).join(", ")}</span>
                 </div>
               </div>
-              <div className="flex flex-shrink-0 items-center gap-2">
-                <button onClick={() => onOpen(api)} className="rounded-full border border-slate-200/70 bg-white px-4 py-2 text-sm shadow-[0_2px_6px_rgba(15,23,42,0.04)]">
+              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+                <button type="button" onClick={() => onOpen(api)} className="rounded-full border border-slate-200/70 bg-white px-4 py-3 text-sm shadow-[0_2px_6px_rgba(15,23,42,0.04)] sm:py-2">
                   Open
                 </button>
                 {canAccessApi(api, currentTier) ? (
-                  <button onClick={() => onTest(api)} className="rounded-full bg-blue-400 px-4 py-2 text-sm font-medium text-white shadow-[0_6px_14px_rgba(66,133,244,0.08)]">
+                  <button type="button" onClick={() => onTest(api)} className="rounded-full bg-blue-400 px-4 py-3 text-sm font-medium text-white shadow-[0_6px_14px_rgba(66,133,244,0.08)] sm:py-2">
                     Test
                   </button>
                 ) : (
-                  <button onClick={() => onRequestCheckout(api.requiredTier)} className="rounded-full bg-amber-400 px-4 py-2 text-sm font-medium text-white shadow-[0_6px_14px_rgba(245,158,11,0.08)]">
+                  <button type="button" onClick={() => onRequestCheckout(api.requiredTier)} className="rounded-full bg-amber-400 px-4 py-3 text-sm font-medium text-white shadow-[0_6px_14px_rgba(245,158,11,0.08)] sm:py-2">
                     Unlock
                   </button>
                 )}
-                <button onClick={() => onSave(api)} className="rounded-full border border-slate-200/70 bg-white px-4 py-2 text-sm shadow-[0_2px_6px_rgba(15,23,42,0.04)]">
+                <button type="button" onClick={() => onSave(api)} className="rounded-full border border-slate-200/70 bg-white px-4 py-3 text-sm shadow-[0_2px_6px_rgba(15,23,42,0.04)] sm:py-2">
                   {favorites.includes(api.id) ? "Saved" : "Save"}
                 </button>
               </div>
@@ -1583,7 +1641,7 @@ function CollectionsPage({
       <section className="grid gap-3 lg:grid-cols-2">
         {filtered.map((collection) => (
           <article key={collection.id} className="rounded-[24px] border border-slate-200/60 bg-white p-5 shadow-[0_4px_14px_rgba(15,23,42,0.04)]">
-            <div className="flex items-start justify-between gap-4">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div className="flex items-start gap-3">
                 <div className={`mt-1 h-12 w-12 rounded-2xl ${collectionThemeBadge(collection.color ?? "blue")}`} />
                 <div>
@@ -1592,18 +1650,18 @@ function CollectionsPage({
                   <p className="mt-2 text-xs uppercase tracking-[0.2em] text-slate-400">{collection.items.length} APIs</p>
                 </div>
               </div>
-              <div className="flex gap-2">
-                <button onClick={() => onDuplicate(collection.id)} className="rounded-full border border-slate-200/70 px-3 py-2 text-sm">
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <button type="button" onClick={() => onDuplicate(collection.id)} className="rounded-full border border-slate-200/70 px-3 py-3 text-sm sm:py-2">
                   Duplicate
                 </button>
-                <button onClick={() => onExport(collection.id)} className="rounded-full border border-slate-200/70 px-3 py-2 text-sm">
+                <button type="button" onClick={() => onExport(collection.id)} className="rounded-full border border-slate-200/70 px-3 py-3 text-sm sm:py-2">
                   Export
                 </button>
               </div>
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
               {collection.items.map((item) => (
-                <button key={item.apiId} onClick={() => onOpenApi(item.apiId)} className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-700">
+                <button type="button" key={item.apiId} onClick={() => onOpenApi(item.apiId)} className="rounded-full bg-slate-100 px-3 py-3 text-xs text-slate-700 sm:py-1">
                   {apiLabelFromId(item.apiId)}
                 </button>
               ))}
@@ -1625,21 +1683,22 @@ function CollectionsPage({
             <option value="rose">Rose</option>
           </select>
         </div>
-        <div className="mt-4 flex gap-3">
-          <button onClick={onCreate} className="rounded-full bg-blue-500 px-4 py-2 text-sm font-medium text-white shadow-[0_6px_14px_rgba(66,133,244,0.09)]">
+        <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+          <button type="button" onClick={onCreate} className="rounded-full bg-blue-500 px-4 py-3 text-sm font-medium text-white shadow-[0_6px_14px_rgba(66,133,244,0.09)] sm:py-2">
             Save selected API
           </button>
-          <button onClick={onImport} className="rounded-full border border-slate-200/70 px-4 py-2 text-sm">
+          <button type="button" onClick={onImport} className="rounded-full border border-slate-200/70 px-4 py-3 text-sm sm:py-2">
             Import JSON
           </button>
           <button
+            type="button"
             onClick={() => {
               const sample = selectedCollection?.items[0]?.apiId;
             if (sample) {
               onOpenApi(sample);
             }
           }}
-          className="rounded-full border border-slate-200/70 px-4 py-2 text-sm"
+          className="rounded-full border border-slate-200/70 px-4 py-3 text-sm sm:py-2"
         >
           Open collection sample
         </button>
@@ -1702,7 +1761,7 @@ function WorkflowPage({
   return (
     <div className="space-y-6">
       <section className="rounded-[28px] border border-slate-200/60 bg-white p-4 shadow-[0_6px_18px_rgba(15,23,42,0.04)]">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           <div>
             <h2 className="text-[22px] font-semibold tracking-tight text-slate-900">Workflow Builder</h2>
             <p className="mt-2 text-sm text-slate-500">Google Forms simplicity for ordered API pipelines.</p>
@@ -1712,25 +1771,26 @@ function WorkflowPage({
               </div>
             )}
           </div>
-          <div className="flex gap-2">
-            <button onClick={onRunAll} className="rounded-full bg-blue-500 px-4 py-2 text-sm font-medium text-white shadow-[0_6px_14px_rgba(66,133,244,0.09)]">
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            <button type="button" onClick={onRunAll} className="rounded-full bg-blue-500 px-4 py-3 text-sm font-medium text-white shadow-[0_6px_14px_rgba(66,133,244,0.09)] sm:py-2">
               Run full workflow
             </button>
-            <button onClick={onSave} className="rounded-full border border-slate-200/70 px-4 py-2 text-sm">
+            <button type="button" onClick={onSave} className="rounded-full border border-slate-200/70 px-4 py-3 text-sm sm:py-2">
               Save workflow
             </button>
             <button
+              type="button"
               onClick={() => {
                 const source = selectedWorkflow ?? workflows[0] ?? null;
                 setDraft(buildWorkflowDraft(source));
                 setWorkflowName(source?.name ?? "");
                 setWorkflowDescription(source?.description ?? "");
               }}
-              className="rounded-full border border-slate-200/70 px-4 py-2 text-sm"
+              className="rounded-full border border-slate-200/70 px-4 py-3 text-sm sm:py-2"
             >
               Load template
             </button>
-            <button onClick={onImport} className="rounded-full border border-slate-200/70 px-4 py-2 text-sm">
+            <button type="button" onClick={onImport} className="rounded-full border border-slate-200/70 px-4 py-3 text-sm sm:py-2">
               Import JSON
             </button>
           </div>
@@ -1744,7 +1804,7 @@ function WorkflowPage({
       <section className="space-y-3">
         {draft.map((step, index) => (
           <article key={`${step.apiId}-${index}`} className="rounded-[24px] border border-slate-200/60 bg-white p-4 shadow-[0_4px_14px_rgba(15,23,42,0.04)]">
-            <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <div className="text-xs uppercase tracking-[0.25em] text-slate-400">Step {index + 1}</div>
                 <select value={step.apiId} onChange={(event) => setDraft(draft.map((item, itemIndex) => (itemIndex === index ? { ...item, apiId: event.target.value, status: "ready" } : item)))} className="mt-2 max-w-[26rem] rounded-2xl border border-slate-200/70 bg-slate-50 px-4 py-3 text-sm">
@@ -1772,8 +1832,8 @@ function WorkflowPage({
                   Open in catalog
                 </button>
               </div>
-              <div className="flex gap-2">
-                <button onClick={() => onRunStep(index)} className="rounded-full border border-slate-200/70 px-3 py-2 text-sm">
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <button type="button" onClick={() => onRunStep(index)} className="rounded-full border border-slate-200/70 px-3 py-3 text-sm sm:py-2">
                   Test step
                 </button>
               </div>
@@ -1791,19 +1851,19 @@ function WorkflowPage({
       <section className="grid gap-3 md:grid-cols-2">
         {workflows.map((workflow) => (
           <article key={workflow.id} className="rounded-[24px] border border-slate-200/60 bg-white p-4 shadow-[0_4px_14px_rgba(15,23,42,0.04)]">
-            <div className="flex items-start justify-between gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <h3 className="text-base font-semibold tracking-tight text-slate-900">{workflow.name}</h3>
                 <p className="mt-1 text-sm text-slate-500">{workflow.description}</p>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <button onClick={() => onSelectWorkflow(workflow.id)} className="rounded-full border border-slate-200/70 px-3 py-2 text-sm">
+              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                <button type="button" onClick={() => onSelectWorkflow(workflow.id)} className="rounded-full border border-slate-200/70 px-3 py-3 text-sm sm:py-2">
                   Open
                 </button>
-                <button onClick={() => onDuplicate(workflow.id)} className="rounded-full border border-slate-200/70 px-3 py-2 text-sm">
+                <button type="button" onClick={() => onDuplicate(workflow.id)} className="rounded-full border border-slate-200/70 px-3 py-3 text-sm sm:py-2">
                   Duplicate
                 </button>
-                <button onClick={() => onExport(workflow.id)} className="rounded-full border border-slate-200/70 px-3 py-2 text-sm">
+                <button type="button" onClick={() => onExport(workflow.id)} className="rounded-full border border-slate-200/70 px-3 py-3 text-sm sm:py-2">
                   Export
                 </button>
               </div>
@@ -2185,7 +2245,7 @@ function PlaygroundPage({
   return (
     <div className="space-y-6">
       <section className="rounded-[32px] border border-slate-200/60 bg-white p-6 shadow-[0_8px_22px_rgba(15,23,42,0.04)]">
-        <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <div className="inline-flex rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-500">Playground 2.0</div>
             <h2 className="mt-3 text-[30px] font-semibold tracking-tight text-slate-900">{api.name}</h2>
@@ -2229,14 +2289,14 @@ function PlaygroundPage({
                 <div className="text-[18px] font-semibold tracking-tight text-slate-900">Response Viewer</div>
                 <div className="text-sm text-slate-500">Pretty JSON, raw output, and execution metadata.</div>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <button onClick={onCopyResponse} className="rounded-full border border-slate-200/70 bg-white px-3 py-2 text-xs">
+              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                <button type="button" onClick={onCopyResponse} className="rounded-full border border-slate-200/70 bg-white px-3 py-3 text-xs sm:py-2">
                   Copy response
                 </button>
-                <button onClick={onSaveResponse} className="rounded-full border border-slate-200/70 bg-white px-3 py-2 text-xs">
+                <button type="button" onClick={onSaveResponse} className="rounded-full border border-slate-200/70 bg-white px-3 py-3 text-xs sm:py-2">
                   Save result
                 </button>
-                <button onClick={onSaveRequest} className="rounded-full border border-slate-200/70 bg-white px-3 py-2 text-xs">
+                <button type="button" onClick={onSaveRequest} className="rounded-full border border-slate-200/70 bg-white px-3 py-3 text-xs sm:py-2">
                   Save request
                 </button>
               </div>
@@ -2264,7 +2324,7 @@ function PlaygroundPage({
               <p>Next APIs: {api.tags.slice(0, 3).join(", ")}</p>
               <p>Response format: {response?.error ? "Error" : "Success"} / {response?.statusCode ?? "idle"}</p>
             </div>
-            <button onClick={onSaveRequest} className="mt-5 rounded-full border border-slate-200/70 bg-white px-4 py-2 text-sm">
+            <button type="button" onClick={onSaveRequest} className="mt-5 rounded-full border border-slate-200/70 bg-white px-4 py-3 text-sm sm:py-2">
               Save request
             </button>
           </section>
@@ -2272,10 +2332,11 @@ function PlaygroundPage({
           <section className="rounded-[32px] border border-slate-200/60 bg-blue-50 p-6 shadow-[0_8px_22px_rgba(15,23,42,0.04)]">
             <div className="text-lg font-semibold tracking-tight text-slate-900">Quick access</div>
             <p className="mt-2 text-sm text-slate-600">Use the selected Magnexis API directly in a larger workspace with the response viewer separated from the docs.</p>
-            <button
-              onClick={() => onRequestCheckout(api.requiredTier)}
-              className={`mt-4 w-full rounded-full px-4 py-3 text-sm font-medium ${canAccessApi(api, currentTier) ? "border border-slate-200/70 bg-white text-slate-700" : "bg-amber-400 text-white"}`}
-            >
+          <button
+            type="button"
+            onClick={() => onRequestCheckout(api.requiredTier)}
+            className={`mt-4 w-full rounded-full px-4 py-3 text-sm font-medium ${canAccessApi(api, currentTier) ? "border border-slate-200/70 bg-white text-slate-700" : "bg-amber-400 text-white"}`}
+          >
               {canAccessApi(api, currentTier) ? `Plan: ${tierLabel(api.requiredTier)}` : `Unlock ${tierLabel(api.requiredTier)}`}
             </button>
           </section>
@@ -2342,7 +2403,7 @@ function SearchOverlay({
           </SearchGroup>
         </div>
         <div className="flex justify-end border-t border-slate-200/60 p-4">
-          <button onClick={onClose} className="rounded-full border border-slate-200/70 px-4 py-2 text-sm">
+          <button type="button" onClick={onClose} className="rounded-full border border-slate-200/70 px-4 py-3 text-sm sm:py-2">
             Close
           </button>
         </div>
@@ -2457,10 +2518,10 @@ function CheckoutModal({
                     </div>
                   )}
                   <div className="mt-5 flex gap-3">
-                    <button onClick={onClose} className="flex-1 rounded-full border border-slate-200/70 bg-white px-4 py-3 text-sm">
+                    <button type="button" onClick={onClose} className="flex-1 rounded-full border border-slate-200/70 bg-white px-4 py-3 text-sm">
                       Cancel
                     </button>
-                    <button onClick={onStartCheckout} className="flex-1 rounded-full bg-blue-400 px-4 py-3 text-sm font-medium text-white shadow-[0_6px_14px_rgba(66,133,244,0.08)]">
+                    <button type="button" onClick={onStartCheckout} className="flex-1 rounded-full bg-blue-400 px-4 py-3 text-sm font-medium text-white shadow-[0_6px_14px_rgba(66,133,244,0.08)]">
                       Continue to Square
                     </button>
                   </div>
@@ -2484,16 +2545,17 @@ function CheckoutModal({
                     Open the Square link, finish payment, then click the confirmation button to apply the subscription tier locally.
                   </div>
                   <div className="mt-5 flex flex-wrap gap-3">
-                    <button onClick={onClose} className="flex-1 rounded-full border border-slate-200/70 bg-white px-4 py-3 text-sm">
+                    <button type="button" onClick={onClose} className="flex-1 rounded-full border border-slate-200/70 bg-white px-4 py-3 text-sm">
                       Close
                     </button>
                     <button
+                      type="button"
                       onClick={() => openExternalUrl(receipt.checkoutUrl)}
                       className="flex-1 rounded-full border border-blue-100 bg-white px-4 py-3 text-sm font-medium text-blue-500"
                     >
                       Open Square again
                     </button>
-                    <button onClick={onCompleteCheckout} className="flex-1 rounded-full bg-blue-400 px-4 py-3 text-sm font-medium text-white shadow-[0_6px_14px_rgba(66,133,244,0.08)]">
+                    <button type="button" onClick={onCompleteCheckout} className="flex-1 rounded-full bg-blue-400 px-4 py-3 text-sm font-medium text-white shadow-[0_6px_14px_rgba(66,133,244,0.08)]">
                       I completed payment
                     </button>
                   </div>
@@ -2557,10 +2619,10 @@ function CoinModal({
             </ul>
           </div>
           <div className="mt-5 flex gap-3">
-            <button onClick={onClose} className="flex-1 rounded-full border border-slate-200/70 bg-white px-4 py-3 text-sm">
+            <button type="button" onClick={onClose} className="flex-1 rounded-full border border-slate-200/70 bg-white px-4 py-3 text-sm">
               Cancel
             </button>
-            <button onClick={onSpend} className="flex-1 rounded-full bg-blue-400 px-4 py-3 text-sm font-medium text-white shadow-[0_6px_14px_rgba(66,133,244,0.08)]">
+            <button type="button" onClick={onSpend} className="flex-1 rounded-full bg-blue-400 px-4 py-3 text-sm font-medium text-white shadow-[0_6px_14px_rgba(66,133,244,0.08)]">
               Spend 1 coin
             </button>
           </div>
@@ -2604,6 +2666,7 @@ function SignupScreen({
         </div>
         <div className="mt-5 flex justify-end gap-3">
           <button
+            type="button"
             onClick={onContinue}
             disabled={!draft.email.trim()}
             className="rounded-full bg-blue-400 px-5 py-3 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-slate-300"
@@ -2634,6 +2697,7 @@ function OnboardingScreen({
         <div className="mt-5 flex flex-wrap gap-3">
           {ALL_INTERESTS.map((interest) => (
             <button
+              type="button"
               key={interest}
               onClick={() => onToggle(interest)}
             className={`rounded-full border px-4 py-2 text-sm ${selected.includes(interest) ? "border-blue-100/80 bg-blue-50 text-blue-500 shadow-[0_2px_6px_rgba(66,133,244,0.08)]" : "border-slate-200/70 bg-white text-slate-600"}`}
@@ -2709,7 +2773,7 @@ function SearchGroup({ title, children }: { title: string; children: ReactNode }
 
 function SearchItem({ title, subtitle, onClick }: { title: string; subtitle: string; onClick: () => void }) {
   return (
-    <button onClick={onClick} className="w-full rounded-[18px] border border-slate-200/60 bg-slate-50/70 px-4 py-3 text-left shadow-none transition hover:border-blue-100 hover:bg-white hover:shadow-[0_6px_14px_rgba(15,23,42,0.05)]">
+    <button type="button" onClick={onClick} className="w-full rounded-[18px] border border-slate-200/60 bg-slate-50/70 px-4 py-3 text-left shadow-none transition hover:border-blue-100 hover:bg-white hover:shadow-[0_6px_14px_rgba(15,23,42,0.05)]">
       <div className="font-medium text-slate-900">{title}</div>
       <div className="text-xs text-slate-500">{subtitle}</div>
     </button>
@@ -2757,7 +2821,7 @@ function Field({
 
 function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
   return (
-    <button onClick={() => onChange(!checked)} className="flex w-full items-center justify-between rounded-2xl border border-slate-200/70 bg-slate-50 px-4 py-3 text-sm transition hover:bg-white">
+    <button type="button" onClick={() => onChange(!checked)} className="flex w-full items-center justify-between rounded-2xl border border-slate-200/70 bg-slate-50 px-4 py-3 text-sm transition hover:bg-white">
       <span>{label}</span>
       <span className={`inline-flex h-6 w-11 items-center rounded-full p-1 ${checked ? "bg-blue-400" : "bg-slate-300"}`}>
         <span className={`h-4 w-4 rounded-full bg-white transition ${checked ? "translate-x-5" : "translate-x-0"}`} />
@@ -2808,7 +2872,7 @@ function Badge({ label }: { label: string }) {
 
 function NavButton({ active, label, description, onClick }: { active: boolean; label: string; description: string; onClick: () => void }) {
   return (
-    <button onClick={onClick} className={`w-full rounded-[20px] px-4 py-3 text-left transition ${active ? "bg-blue-50 text-blue-500 shadow-[0_4px_10px_rgba(66,133,244,0.05)]" : "hover:bg-slate-50/80"}`}>
+    <button type="button" onClick={onClick} className={`w-full rounded-[20px] px-4 py-3 text-left transition ${active ? "bg-blue-50 text-blue-500 shadow-[0_4px_10px_rgba(66,133,244,0.05)]" : "hover:bg-slate-50/80"}`}>
       <div className="font-medium">{label}</div>
       <div className="text-xs text-slate-500">{description}</div>
     </button>

@@ -135,12 +135,24 @@ textarea {
 
 button {
   cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 img,
 svg {
   display: block;
   max-width: 100%;
+}
+
+@media (max-width: 767px) {
+  button,
+  a,
+  input,
+  select,
+  textarea {
+    min-height: 44px;
+  }
 }
 
 ::selection {
