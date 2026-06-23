@@ -198,6 +198,7 @@ function AppShell() {
   const [collectionDescription, setCollectionDescription] = useState("");
   const [collectionSearch, setCollectionSearch] = useState("");
   const [settingsDraft, setSettingsDraft] = useState<Settings>(settings);
+  const lastSavedSettingsRef = useRef<string>("");
   const [collectionTheme, setCollectionTheme] = useState("blue");
   const [accessApi, setCheckoutApi] = useState<ApiDefinition | null>(null);
   const [accessTier, setCheckoutTier] = useState<Settings["subscription_tier"]>("pro");
@@ -410,6 +411,21 @@ function AppShell() {
   }, [settings]);
 
   useEffect(() => {
+    if (!lastSavedSettingsRef.current) {
+      lastSavedSettingsRef.current = JSON.stringify(settingsDraft);
+      return;
+    }
+    const currentSerialized = JSON.stringify(settingsDraft);
+    if (currentSerialized === lastSavedSettingsRef.current) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void saveSettingsChanges();
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [settingsDraft]);
+
+  useEffect(() => {
     persistLocal("magnexis-saved-results", savedResults);
   }, [savedResults]);
 
@@ -539,6 +555,7 @@ function AppShell() {
     setSavedRequests(savedRequestItems);
     setSettings(settingsResponse);
     setSettingsDraft(settingsResponse);
+    lastSavedSettingsRef.current = JSON.stringify(settingsResponse);
     setOnboarding(onboardingResponse);
     setAccount(accountResponse);
     setCheckoutReceipts(receiptItems);
@@ -670,6 +687,8 @@ function AppShell() {
   async function saveSettingsChanges() {
     const updated = await updateSettings(settingsDraft);
     setSettings(updated);
+    setSettingsDraft(updated);
+    lastSavedSettingsRef.current = JSON.stringify(updated);
   }
 
   function promptCheckout(api: ApiDefinition, tier: Settings["subscription_tier"] = api.requiredTier) {
@@ -878,7 +897,8 @@ function AppShell() {
   return (
     <div className="min-h-screen overflow-x-hidden bg-[var(--app-bg)] text-[var(--app-text)]" data-theme={settings.theme}>
       <div className="mx-auto flex min-h-screen w-full max-w-[1680px]">
-        <aside className="hidden w-80 flex-col border-r border-slate-200/60 bg-white/90 backdrop-blur lg:flex">
+        {!isPaymentView && (
+          <aside className="hidden w-80 flex-col border-r border-slate-200/60 bg-white/90 backdrop-blur lg:flex">
           <div className="flex items-center gap-3 border-b border-slate-200/60 px-6 py-5">
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-400 text-white shadow-[0_8px_16px_rgba(66,133,244,0.08)]">M</div>
             <div>
@@ -897,10 +917,12 @@ function AppShell() {
               <div className="mt-2 text-sm text-slate-700">Port {settings.local_port}. Requests stay on your machine.</div>
             </div>
           </div>
-        </aside>
+          </aside>
+        )}
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="sticky top-0 z-20 border-b border-slate-200/60 bg-[var(--app-bg-elevated)] px-4 py-3 backdrop-blur md:px-6">
+          {!isPaymentView ? (
+            <header className="sticky top-0 z-20 border-b border-slate-200/60 bg-[var(--app-bg-elevated)] px-4 py-3 backdrop-blur md:px-6">
             <div className="flex items-center gap-3 xl:hidden">
               <button
                 type="button"
@@ -955,9 +977,29 @@ function AppShell() {
                 </button>
               </div>
             </div>
-          </header>
+            </header>
+          ) : (
+            <div className="sticky top-0 z-20 border-b border-slate-200/60 bg-white/85 px-4 py-3 backdrop-blur md:px-6">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-blue-400 text-white shadow-[0_8px_16px_rgba(66,133,244,0.08)]">M</div>
+                  <div>
+                    <div className="text-sm font-semibold tracking-tight text-slate-900">Magnexis APIHub</div>
+                    <div className="text-xs text-slate-500">Secure payment flow</div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => navigate({ view: "dashboard" })}
+                  className="rounded-full border border-slate-200/70 bg-white px-4 py-2 text-sm text-slate-600 shadow-[0_1px_2px_rgba(15,23,42,0.05)]"
+                >
+                  Back to app
+                </button>
+              </div>
+            </div>
+          )}
 
-          {mobileNavOpen && (
+          {!isPaymentView && mobileNavOpen && (
             <div className="fixed inset-0 z-30 bg-slate-950/25 backdrop-blur-sm xl:hidden" onClick={() => setMobileNavOpen(false)}>
               <div
                 className="absolute left-0 top-0 h-full w-[86vw] max-w-sm border-r border-slate-200/60 bg-white p-4 shadow-[0_16px_40px_rgba(15,23,42,0.14)]"
@@ -995,7 +1037,7 @@ function AppShell() {
           )}
 
           <main className={`grid min-h-0 flex-1 gap-0 ${isPaymentView ? "grid-cols-1" : view === "playground" ? "xl:grid-cols-1" : "xl:grid-cols-[minmax(0,1fr)_540px]"}`}>
-            <section className="min-h-0 overflow-auto px-4 py-5 md:px-6">
+            <section className={`min-h-0 overflow-auto ${isPaymentView ? "px-4 py-8 md:px-8 md:py-10" : "px-4 py-5 md:px-6"}`}>
               {view === "checkout" && (
                 <CheckoutPage
                   api={paymentApi}
@@ -2029,15 +2071,11 @@ function SettingsPage({
           <Select value={settings.response_format} onChange={(value) => setSettings({ ...settings, response_format: value as Settings["response_format"] })} options={[{ value: "json", label: "JSON" }, { value: "pretty", label: "Pretty" }, { value: "raw", label: "Raw" }]} />
         </SettingGroup>
         <SettingGroup title="Subscription">
-          <Select
-            value={settings.subscription_tier}
-            onChange={(value) => setSettings({ ...settings, subscription_tier: value as Settings["subscription_tier"] })}
-            options={[
-              { value: "free", label: "Free" },
-              { value: "pro", label: "Pro" },
-              { value: "enterprise", label: "Enterprise" },
-            ]}
-          />
+          <div className="rounded-2xl border border-slate-200/60 bg-slate-50 p-4 text-sm text-slate-700">
+            <div className="text-xs uppercase tracking-[0.2em] text-slate-400">Current tier</div>
+            <div className="mt-2 text-lg font-semibold text-slate-900">{tierLabel(settings.subscription_tier)}</div>
+            <div className="mt-2 text-sm text-slate-500">Plan changes are managed through checkout so the tier stays tied to a real receipt.</div>
+          </div>
           <div className="rounded-2xl border border-blue-100/70 bg-blue-50 p-4 text-sm text-slate-700">
             Current plan: <span className="font-semibold text-blue-500">{tierLabel(settings.subscription_tier)}</span>
           </div>
@@ -2047,7 +2085,7 @@ function SettingsPage({
                 key={plan.tier}
                 type="button"
                 onClick={() => onRequestCheckout(plan.tier)}
-                className={`rounded-[22px] border p-4 text-left transition hover:shadow-[0_8px_18px_rgba(15,23,42,0.06)] ${settings.subscription_tier === plan.tier ? "border-blue-100/80 bg-blue-50 shadow-[0_4px_10px_rgba(66,133,244,0.06)]" : "border-slate-200/60 bg-white"}`}
+                className={`rounded-[22px] border p-4 text-left transition hover:-translate-y-0.5 hover:shadow-[0_10px_20px_rgba(15,23,42,0.08)] ${settings.subscription_tier === plan.tier ? "border-blue-100/80 bg-blue-50 shadow-[0_4px_10px_rgba(66,133,244,0.06)]" : "border-slate-200/60 bg-white"}`}
               >
                 <div className="text-sm font-semibold text-slate-900">{plan.label}</div>
                 <div className="mt-1 text-base font-semibold tracking-tight text-slate-900">{plan.price}</div>
