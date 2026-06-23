@@ -82,3 +82,14 @@ export type CheckoutReceipt = {
   updatedAt: string;
   completedAt?: string | null;
 };
+
+export type BillingConfig = {
+  paymentLink: string;
+  successUrl: string;
+  cancelUrl: string;
+  tierLinks: {
+    pro: string;
+    enterprise: string;
+  };
+  configured: boolean;
+};

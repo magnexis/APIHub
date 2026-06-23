@@ -1,0 +1,25 @@
+name,sku,category,price_cents,currency,description,unlock_scope
+
+
+API Pack Expansion Bundle,mag-api-pack-expansion-bundle,pack,1999,USD,Unlock additional curated API packs and starter sets,pack
+Advanced Analytics Add-On,mag-advanced-analytics-addon,service,3499,USD,Unlock deeper usage reports, trends, and API insights,service
+Usage History Export Pack,mag-usage-history-export-pack,feature,999,USD,Export usage history and execution logs for analysis,feature
+Developer Sandbox Pack,mag-developer-sandbox-pack,pack,1799,USD,Expanded sandbox features for experimentation and testing,pack
+Test Request Credits Pack,mag-test-request-credits-pack,entitlement,1499,USD,Additional request credits for API testing sessions,coin
+Custom API Themes Pack,mag-custom-api-themes-pack,design,1299,USD,Additional visual themes for the API hub and playground,feature
+Brand Kit Import Pack,mag-brand-kit-import-pack,design,1899,USD,Import and apply brand kits across the app experience,feature
+Web Builder Toolkit,mag-web-builder-toolkit,toolkit,2299,USD,Bundle of web-focused APIs and helpers for site creation,pack
+Security Toolkit,mag-security-toolkit,toolkit,2299,USD,Bundle of security-focused APIs and risk checks,pack
+Finance Toolkit,mag-finance-toolkit,toolkit,2299,USD,Bundle of finance and forecasting utilities,pack
+Data Toolkit,mag-data-toolkit,toolkit,2299,USD,Bundle of data conversion, mock, and analysis APIs,pack
+Game Dev Toolkit,mag-game-dev-toolkit,toolkit,2299,USD,Bundle of game development and simulation APIs,pack
+Onboarding Starter Kit,mag-onboarding-starter-kit,feature,1099,USD,Guided onboarding flow with starter API recommendations,feature
+Featured API Placement,mag-featured-api-placement,marketing,4999,USD,Promote selected APIs in featured catalog placements,feature
+Private API Registry Access,mag-private-api-registry-access,access,7999,USD,Unlock access to private registry views and advanced catalog tools,access
+Offline Mode Unlock,mag-offline-mode-unlock,feature,1599,USD,Enable offline-capable browsing and saved local state,feature
+Team Collaboration Add-On,mag-team-collaboration-addon,service,3999,USD,Shared collections, workflows, and review tools for teams,service
+API Version History Add-On,mag-api-version-history-addon,feature,1299,USD,Track API changes and browse previous versions,feature
+Smart Recommendations Add-On,mag-smart-recommendations-addon,feature,1399,USD,Unlock smarter API suggestions and catalog ranking,feature
+White-Label Mode,mag-white-label-mode,feature,8999,USD,Remove default branding and apply custom product branding,feature
+Custom Domain Support,mag-custom-domain-support,service,5999,USD,Use a custom domain for hosted Magnexis experiences,service
+Export/Import Enhancement Pack,mag-export-import-enhancement-pack,feature,1499,USD,Expand export and import options for saved items and workflows,feature

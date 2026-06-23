@@ -23,6 +23,7 @@ from .storage import (
     count_recent_executions,
     delete_collection as delete_collection_row,
     get_account,
+    get_checkout_receipt,
     get_checkout_receipts,
     get_collections as get_collection_rows,
     get_executions,
@@ -33,6 +34,7 @@ from .storage import (
     get_settings,
     get_workflows as get_workflow_rows,
     init_db,
+    get_paid_subscription_tier,
     save_collection,
     save_onboarding,
     save_saved_request,
@@ -54,6 +56,9 @@ SQUARE_CHECKOUT_URLS = {
     "enterprise": os.getenv("SQUARE_CHECKOUT_URL_ENTERPRISE", "").strip(),
 }
 DEFAULT_SQUARE_CHECKOUT_URL = os.getenv("SQUARE_CHECKOUT_URL", "").strip()
+SQUARE_PAYMENT_LINK = os.getenv("SQUARE_PAYMENT_LINK", "").strip()
+SQUARE_SUCCESS_URL = os.getenv("SQUARE_SUCCESS_URL", "").strip()
+SQUARE_CANCEL_URL = os.getenv("SQUARE_CANCEL_URL", "").strip()
 
 
 def _allowed_origins() -> list[str]:
@@ -68,13 +73,21 @@ def _checkout_amount_cents(tier: str) -> int:
 
 
 def _checkout_url_for_tier(tier: str) -> str:
-    url = SQUARE_CHECKOUT_URLS.get(tier) or DEFAULT_SQUARE_CHECKOUT_URL
+    url = SQUARE_CHECKOUT_URLS.get(tier) or SQUARE_PAYMENT_LINK or DEFAULT_SQUARE_CHECKOUT_URL
     if not url:
         raise HTTPException(
           status_code=503,
-          detail="Access URL is not configured. Set the tier access links in .env.",
+          detail="Square payment link is not configured. Set the payment link in .env.",
       )
     return url
+
+
+def _success_url() -> str:
+    return SQUARE_SUCCESS_URL or "/payment-success"
+
+
+def _cancel_url() -> str:
+    return SQUARE_CANCEL_URL or "/payment-cancelled"
 
 app.add_middleware(
     CORSMiddleware,
@@ -206,34 +219,46 @@ def execute(request: ApiExecuteRequest) -> dict[str, Any]:
     if not definition:
         raise HTTPException(status_code=404, detail="API not found")
     use_coin = bool(request.body.get("useCoin"))
-    current_tier = str(get_settings().get("subscription_tier", "free"))
+    current_tier = get_paid_subscription_tier()
     tier_blocked = not tier_allows(current_tier, definition.requiredTier)
     rate_blocked = count_recent_executions(request.apiId, 60) >= definition.rateLimitPerMinute
-    if tier_blocked or rate_blocked:
+    if tier_blocked:
+        raise HTTPException(
+            status_code=402,
+            detail={
+                "message": "Square checkout required",
+                "requiredTier": definition.requiredTier,
+                "currentTier": current_tier,
+                "apiId": request.apiId,
+                "rateLimitPerMinute": definition.rateLimitPerMinute,
+                "coinRequired": False,
+            },
+        )
+    if rate_blocked:
         if use_coin:
             if not spend_api_coin():
                 raise HTTPException(
-                    status_code=402 if tier_blocked else 429,
+                    status_code=429,
                     detail={
-                        "message": "Magnexis API Coin required",
+                        "message": "Rate limit exceeded",
                         "requiredTier": definition.requiredTier,
                         "currentTier": current_tier,
                         "apiId": request.apiId,
                         "rateLimitPerMinute": definition.rateLimitPerMinute,
-                        "retryAfterSeconds": 60 if rate_blocked else None,
+                        "retryAfterSeconds": 60,
                         "coinRequired": True,
                     },
                 )
         else:
             raise HTTPException(
-                status_code=402 if tier_blocked else 429,
+                status_code=429,
                 detail={
-                    "message": "Magnexis API Coin required",
+                    "message": "Rate limit exceeded",
                     "requiredTier": definition.requiredTier,
                     "currentTier": current_tier,
                     "apiId": request.apiId,
                     "rateLimitPerMinute": definition.rateLimitPerMinute,
-                    "retryAfterSeconds": 60 if rate_blocked else None,
+                    "retryAfterSeconds": 60,
                     "coinRequired": True,
                 },
             )
@@ -377,6 +402,28 @@ def billing_receipts() -> list[dict[str, Any]]:
     return get_checkout_receipts()
 
 
+@app.get("/api/billing/receipts/{receipt_id}")
+def billing_receipt(receipt_id: str) -> dict[str, Any]:
+    receipt = get_checkout_receipt(receipt_id)
+    if not receipt:
+        raise HTTPException(status_code=404, detail="Receipt not found")
+    return receipt
+
+
+@app.get("/api/billing/config")
+def billing_config() -> dict[str, Any]:
+    return {
+        "paymentLink": SQUARE_PAYMENT_LINK or DEFAULT_SQUARE_CHECKOUT_URL or "",
+        "successUrl": _success_url(),
+        "cancelUrl": _cancel_url(),
+        "tierLinks": {
+            "pro": SQUARE_CHECKOUT_URLS.get("pro") or "",
+            "enterprise": SQUARE_CHECKOUT_URLS.get("enterprise") or "",
+        },
+        "configured": bool(SQUARE_PAYMENT_LINK or DEFAULT_SQUARE_CHECKOUT_URL or SQUARE_CHECKOUT_URLS.get("pro") or SQUARE_CHECKOUT_URLS.get("enterprise")),
+    }
+
+
 @app.post("/api/billing/checkout/start")
 def billing_checkout_start(payload: dict[str, Any]) -> dict[str, Any]:
     api_id = str(payload.get("apiId", "")).strip()
@@ -396,7 +443,12 @@ def billing_checkout_start(payload: dict[str, Any]) -> dict[str, Any]:
         checkout_url=checkout_url,
         provider="square",
     )
-    return {"checkoutUrl": checkout_url, "receipt": receipt}
+    return {
+        "checkoutUrl": checkout_url,
+        "successUrl": _success_url(),
+        "cancelUrl": _cancel_url(),
+        "receipt": receipt,
+    }
 
 
 @app.post("/api/billing/checkout/complete")

@@ -1,4 +1,4 @@
-import type { Account, ApiDefinition, CheckoutReceipt, Category, ExecutionResult, Onboarding, Recommendation, Settings } from "../types";
+import type { Account, ApiDefinition, BillingConfig, CheckoutReceipt, Category, ExecutionResult, Onboarding, Recommendation, Settings } from "../types";
 
 const DEFAULT_API_BASE_URL = "";
 const API_BASE_URL =
@@ -193,4 +193,12 @@ export async function completeCheckout(payload: { receiptId: string }): Promise<
 
 export async function loadCheckoutReceipts(): Promise<CheckoutReceipt[]> {
   return get("/api/billing/receipts");
+}
+
+export async function loadCheckoutReceipt(receiptId: string): Promise<CheckoutReceipt> {
+  return get(`/api/billing/receipts/${encodeURIComponent(receiptId)}`);
+}
+
+export async function loadBillingConfig(): Promise<BillingConfig> {
+  return get("/api/billing/config");
 }

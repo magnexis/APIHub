@@ -1,8 +1,10 @@
-import { Component, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { Component, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type { ErrorInfo, ReactNode } from "react";
 import {
   executeApi,
   completeCheckout,
+  loadBillingConfig,
+  loadCheckoutReceipt,
   loadCheckoutReceipts,
   loadAccount,
   loadCatalog,
@@ -28,9 +30,20 @@ import {
   toggleFavorite,
   updateSettings,
 } from "./lib/api";
-import type { Account, ApiDefinition, CheckoutReceipt, Category, ExecutionResult, Onboarding, Recommendation, Settings } from "./types";
+import { trackEvent } from "./lib/analytics";
+import type { Account, ApiDefinition, BillingConfig, CheckoutReceipt, Category, ExecutionResult, Onboarding, Recommendation, Settings } from "./types";
 
-type AppView = "dashboard" | "catalog" | "playground" | "collections" | "workflows" | "settings";
+type AppView =
+  | "dashboard"
+  | "catalog"
+  | "playground"
+  | "collections"
+  | "workflows"
+  | "settings"
+  | "checkout"
+  | "payment-success"
+  | "payment-cancelled"
+  | "payment-processing";
 type ApiTab = "overview" | "request" | "response" | "examples" | "errors" | "code" | "history";
 type SortMode = "popular" | "a-z" | "newest" | "fastest" | "recent";
 type AppRoute = {
@@ -41,6 +54,8 @@ type AppRoute = {
   workflowId?: string;
   search?: string;
   requestId?: string;
+  paymentTier?: Settings["subscription_tier"];
+  receiptId?: string;
 };
 
 type WorkflowStep = {
@@ -141,7 +156,7 @@ const SUBSCRIPTION_PLANS = [
 ] as const;
 
 function AppShell() {
-  const initialRoute = parseRoute(window.location.hash);
+  const initialRoute = readRouteFromWindow();
   const [route, setRoute] = useState<AppRoute>(initialRoute);
   const [view, setView] = useState<AppView>(initialRoute.view);
   const [catalog, setCatalog] = useState<ApiDefinition[]>([]);
@@ -161,6 +176,7 @@ function AppShell() {
   const [health, setHealth] = useState<Record<string, unknown>>({});
   const [stats, setStats] = useState<Record<string, unknown>>({});
   const [recommendations, setRecommendations] = useState<Recommendation>({ items: [] });
+  const [billingConfig, setBillingConfig] = useState<BillingConfig | null>(null);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [favorites, setFavorites] = useState<string[]>([]);
   const [savedRequests, setSavedRequests] = useState<Array<{ id: string; name: string; apiId: string; method: string }>>([]);
@@ -200,6 +216,11 @@ function AppShell() {
   const collectionsImportRef = useRef<HTMLInputElement | null>(null);
   const workflowsImportRef = useRef<HTMLInputElement | null>(null);
   const selectedWorkflow = useMemo(() => workflows.find((workflow) => workflow.id === route.workflowId) ?? workflows[0] ?? null, [route.workflowId, workflows]);
+  const checkoutApi = useMemo(
+    () => accessApi ?? catalog.find((item) => item.id === route.apiId) ?? selectedApi ?? null,
+    [accessApi, catalog, route.apiId, selectedApi],
+  );
+  const isPaymentView = view === "checkout" || view === "payment-success" || view === "payment-cancelled" || view === "payment-processing";
   const [catalogLimit, setCatalogLimit] = useState(120);
   const deferredQuery = useDeferredValue(query);
   const deferredCatalogQuery = useDeferredValue(catalogQuery);
@@ -210,6 +231,7 @@ function AppShell() {
       setStartupError(message);
       setCatalog([]);
       setCategories([]);
+      setBillingConfig(null);
       setCollections([]);
       setWorkflows([]);
       setHealth({});
@@ -246,10 +268,18 @@ function AppShell() {
   }, [onboarding]);
 
   useEffect(() => {
-    const handleHashChange = () => setRoute(parseRoute(window.location.hash));
-    window.addEventListener("hashchange", handleHashChange);
-    handleHashChange();
-    return () => window.removeEventListener("hashchange", handleHashChange);
+    const handleLocationChange = () => {
+      const nextRoute = readRouteFromWindow();
+      setRoute(nextRoute);
+      setView(nextRoute.view);
+    };
+    window.addEventListener("popstate", handleLocationChange);
+    window.addEventListener("hashchange", handleLocationChange);
+    handleLocationChange();
+    return () => {
+      window.removeEventListener("popstate", handleLocationChange);
+      window.removeEventListener("hashchange", handleLocationChange);
+    };
   }, []);
 
   useEffect(() => {
@@ -261,6 +291,37 @@ function AppShell() {
       setCatalogQuery(route.search);
     }
   }, [catalogQuery, route.search]);
+
+  useEffect(() => {
+    if (route.view === "checkout" && route.paymentTier) {
+      setCheckoutTier(route.paymentTier);
+    }
+  }, [route.paymentTier, route.view]);
+
+  useEffect(() => {
+    if (!route.receiptId || !["checkout", "payment-success", "payment-processing"].includes(view)) {
+      return;
+    }
+    let cancelled = false;
+    const syncReceipt = async () => {
+      try {
+        const receipt = await loadCheckoutReceipt(route.receiptId as string);
+        if (cancelled) {
+          return;
+        }
+        setCheckoutReceipts((current) => [receipt, ...current.filter((item) => item.id !== receipt.id)].slice(0, 25));
+        setCheckoutSession((current) => (current?.receipt.id === receipt.id ? { ...current, receipt } : current));
+      } catch {
+        // Receipt sync is best-effort.
+      }
+    };
+    void syncReceipt();
+    const timer = window.setInterval(syncReceipt, 4000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [route.receiptId, view]);
 
   useEffect(() => {
     if (route.view !== view) {
@@ -305,6 +366,21 @@ function AppShell() {
       setWorkflowDescription(sourceWorkflow?.description ?? "");
     }
   }, [activeApiTab, catalog, route, savedRequests, selectedApi, selectedWorkflow, view, workflows]);
+
+  useEffect(() => {
+    if (view === "checkout") {
+      trackEvent("checkout_page_view", { apiId: route.apiId, tier: route.paymentTier ?? accessTier });
+    }
+    if (view === "payment-processing") {
+      trackEvent("payment_processing_view", { apiId: route.apiId, receiptId: route.receiptId });
+    }
+    if (view === "payment-success") {
+      trackEvent("payment_success", { apiId: route.apiId, receiptId: route.receiptId });
+    }
+    if (view === "payment-cancelled") {
+      trackEvent("payment_cancelled", { apiId: route.apiId, receiptId: route.receiptId });
+    }
+  }, [accessTier, route.apiId, route.paymentTier, route.receiptId, view]);
 
   useEffect(() => {
     if ((route.view === "catalog" || route.view === "playground") && route.apiId) {
@@ -365,13 +441,31 @@ function AppShell() {
   const statsRow = deriveStats(stats, account, favorites, collections, workflows, requestHistory);
   const currentSnippet = useMemo(() => buildSnippet(selectedApi, requestBody), [selectedApi, requestBody]);
   const searchResults = useMemo(() => buildSearchResults(deferredQuery, catalog, collections, workflows, categories), [deferredQuery, catalog, collections, workflows, categories]);
-  const navigate = (nextRoute: AppRoute) => {
-    const nextHash = buildHash(nextRoute);
-    if (window.location.hash !== nextHash) {
-      window.location.hash = nextHash;
+  const navigate = useCallback((nextRoute: AppRoute) => {
+    const normalized = normalizeRoute(nextRoute);
+    const nextUrl = buildRouteUrl(normalized);
+    if (`${window.location.pathname}${window.location.search}` !== nextUrl) {
+      window.history.pushState({}, "", nextUrl);
     }
+    setRoute(normalized);
+    setView(normalized.view);
     setSearchOpen(false);
-  };
+  }, []);
+
+  useEffect(() => {
+    if (route.view === "workflows" && workflows.length) {
+      const hasWorkflow = route.workflowId ? workflows.some((workflow) => workflow.id === route.workflowId) : false;
+      if (!hasWorkflow) {
+        navigate({ view: "workflows", workflowId: workflows[0].id });
+      }
+    }
+    if (route.view === "collections" && collections.length) {
+      const hasCollection = route.collectionId ? collections.some((collection) => collection.id === route.collectionId) : false;
+      if (!hasCollection) {
+        navigate({ view: "collections", collectionId: collections[0].id });
+      }
+    }
+  }, [collections, navigate, route.collectionId, route.view, route.workflowId, workflows]);
 
   async function loadAll() {
     await waitForBackendReady();
@@ -383,6 +477,7 @@ function AppShell() {
       healthResponse,
       statsResponse,
       recommendationsResponse,
+      billingConfigResponse,
       recentSearchesResponse,
       favoritesResponse,
       savedRequestsResponse,
@@ -398,6 +493,7 @@ function AppShell() {
       loadHealthOverview(),
       loadStats(),
       loadRecommendations(),
+      loadBillingConfig(),
       loadRecentSearches(),
       loadFavorites(),
       loadSavedRequests(),
@@ -412,6 +508,7 @@ function AppShell() {
     const collectionItems = Array.isArray(collectionsResponse) ? collectionsResponse : [];
     const workflowItems = Array.isArray(workflowsResponse) ? workflowsResponse : [];
     const recommendationItems = Array.isArray(recommendationsResponse?.items) ? recommendationsResponse.items : [];
+    const billingConfigValue = billingConfigResponse ?? null;
     const searchItems = Array.isArray(recentSearchesResponse) ? recentSearchesResponse : [];
     const favoriteItems = Array.isArray(favoritesResponse) ? favoritesResponse : [];
     const savedRequestItems = Array.isArray(savedRequestsResponse) ? savedRequestsResponse : [];
@@ -425,6 +522,7 @@ function AppShell() {
     setHealth(healthResponse);
     setStats(statsResponse);
     setRecommendations({ items: recommendationItems });
+    setBillingConfig(billingConfigValue);
     setRecentSearches(searchItems);
     setFavorites(favoriteItems);
     setSavedRequests(savedRequestItems);
@@ -568,6 +666,7 @@ function AppShell() {
     setCheckoutTier(maxTier(tier, api.requiredTier));
     setCheckoutSession(null);
     setCheckoutError(null);
+    navigate({ view: "checkout", apiId: api.id, paymentTier: maxTier(tier, api.requiredTier) });
   }
 
   function promptCoin(api: ApiDefinition, reason: "tier" | "rate") {
@@ -588,38 +687,36 @@ function AppShell() {
 
   async function beginCheckout() {
     const api = accessApi;
-    if (!api) {
+    if (!api || !billingConfig?.configured) {
       return;
     }
+    trackEvent("checkout_button_click", { apiId: api.id, tier: accessTier });
     setCheckoutError(null);
     try {
       const session = await startCheckout({ apiId: api.id, tier: accessTier as "pro" | "enterprise" });
       setCheckoutSession(session);
       setCheckoutReceipts((current) => [session.receipt, ...current.filter((item) => item.id !== session.receipt.id)]);
+      navigate({ view: "payment-processing", apiId: api.id, receiptId: session.receipt.id, paymentTier: session.receipt.tier });
       openExternalUrl(session.accessUrl);
     } catch (error) {
       setCheckoutError(error instanceof Error ? error.message : "Unable to start access flow");
     }
   }
 
-  async function finalizeCheckout() {
-    if (!accessSession) {
+  async function finalizeCheckout(receiptId?: string) {
+    const receiptKey = receiptId ?? accessSession?.receipt.id;
+    if (!receiptKey) {
       return;
     }
     setCheckoutError(null);
     try {
-      const updated = await completeCheckout({ receiptId: accessSession.receipt.id });
+      const updated = await completeCheckout({ receiptId: receiptKey });
       setSettings(updated.settings);
       setSettingsDraft(updated.settings);
       setCheckoutReceipts((current) => current.map((receipt) => (receipt.id === updated.receipt.id ? updated.receipt : receipt)));
-      const api = accessApi;
-      setCheckoutSession(null);
-      setCheckoutApi(null);
-      if (api) {
-        setSelectedApi(api);
-        setActiveApiTab("overview");
-        navigate({ view: "playground", apiId: api.id });
-      }
+      setCheckoutSession((current) => (current?.receipt.id === updated.receipt.id ? { ...current, receipt: updated.receipt } : current));
+      setCheckoutApi((current) => current ?? catalog.find((api) => api.id === route.apiId) ?? null);
+      navigate({ view: "payment-success", apiId: route.apiId ?? accessApi?.id, receiptId: updated.receipt.id, paymentTier: updated.receipt.tier });
     } catch (error) {
       setCheckoutError(error instanceof Error ? error.message : "Unable to complete access flow");
     }
@@ -764,30 +861,6 @@ function AppShell() {
     await loadWorkflows().then(setWorkflows);
   }
 
-  if (showSignup) {
-    return (
-      <SignupScreen
-        draft={signupDraft}
-        onChange={setSignupDraft}
-        onContinue={() => void completeSignup()}
-      />
-    );
-  }
-
-  if (showOnboarding) {
-    return (
-      <OnboardingScreen
-        selected={selectedInterests}
-        onToggle={(interest) =>
-          setSelectedInterests((current) =>
-            current.includes(interest) ? current.filter((value) => value !== interest) : [...current, interest].slice(0, 3),
-          )
-        }
-        onContinue={() => void saveOnboardingState()}
-      />
-    );
-  }
-
   return (
     <div className="min-h-screen overflow-x-hidden bg-[var(--app-bg)] text-[var(--app-text)]" data-theme={settings.theme}>
       <div className="mx-auto flex min-h-screen w-full max-w-[1680px]">
@@ -907,8 +980,55 @@ function AppShell() {
             </div>
           )}
 
-          <main className={`grid min-h-0 flex-1 gap-0 ${view === "playground" ? "xl:grid-cols-1" : "xl:grid-cols-[minmax(0,1fr)_540px]"}`}>
+          <main className={`grid min-h-0 flex-1 gap-0 ${isPaymentView ? "grid-cols-1" : view === "playground" ? "xl:grid-cols-1" : "xl:grid-cols-[minmax(0,1fr)_540px]"}`}>
             <section className="min-h-0 overflow-auto px-4 py-5 md:px-6">
+              {view === "checkout" && (
+                <CheckoutPage
+                  api={checkoutApi}
+                  currentTier={settings.subscription_tier}
+                  selectedTier={route.paymentTier ?? accessTier}
+                  billingConfig={billingConfig}
+                  onSelectTier={(tier) => {
+                    setCheckoutTier(tier);
+                    navigate({ view: "checkout", apiId: checkoutApi?.id, paymentTier: tier, receiptId: accessSession?.receipt.id });
+                  }}
+                  onStartCheckout={() => void beginCheckout()}
+                  onCancel={() => {
+                    navigate({ view: "payment-cancelled", apiId: checkoutApi?.id, receiptId: accessSession?.receipt.id, paymentTier: accessSession?.receipt.tier ?? route.paymentTier });
+                  }}
+                  onOpenProcessing={() => navigate({ view: "payment-processing", apiId: checkoutApi?.id, receiptId: accessSession?.receipt.id, paymentTier: accessSession?.receipt.tier })}
+                  recentReceipts={accessReceipts}
+                  errorMessage={accessError}
+                />
+              )}
+
+              {view === "payment-success" && (
+                <PaymentSuccessPage
+                  receipt={accessSession?.receipt ?? (route.receiptId ? accessReceipts.find((item) => item.id === route.receiptId) ?? null : null)}
+                  api={checkoutApi}
+                  onReturnHome={() => navigate({ view: "dashboard" })}
+                  onViewPurchased={() => navigate({ view: "playground", apiId: checkoutApi?.id })}
+                  onOpenReceipt={() => navigate({ view: "payment-processing", apiId: checkoutApi?.id, receiptId: accessSession?.receipt.id ?? route.receiptId, paymentTier: accessSession?.receipt.tier ?? route.paymentTier })}
+                />
+              )}
+
+              {view === "payment-cancelled" && (
+                <PaymentCancelledPage
+                  onTryAgain={() => navigate({ view: "checkout", apiId: checkoutApi?.id, paymentTier: accessSession?.receipt.tier ?? route.paymentTier })}
+                  onReturnHome={() => navigate({ view: "dashboard" })}
+                />
+              )}
+
+              {view === "payment-processing" && (
+                <PaymentProcessingPage
+                  receipt={accessSession?.receipt ?? (route.receiptId ? accessReceipts.find((item) => item.id === route.receiptId) ?? null : null)}
+                  api={checkoutApi}
+                  onVerify={() => void finalizeCheckout(route.receiptId ?? accessSession?.receipt.id)}
+                  onReturnHome={() => navigate({ view: "dashboard" })}
+                  onCancel={() => navigate({ view: "payment-cancelled", apiId: checkoutApi?.id, receiptId: route.receiptId, paymentTier: route.paymentTier })}
+                />
+              )}
+
               {view === "dashboard" && (
                 <Dashboard
                   query={query}
@@ -1092,7 +1212,7 @@ function AppShell() {
               )}
             </section>
 
-            {view !== "playground" && (
+            {view !== "playground" && !isPaymentView && (
               <aside className="min-h-0 overflow-auto border-l border-slate-200/60 bg-white px-4 py-5 md:px-6 xl:px-7">
                 <ApiDetailPanel
                   api={selectedApi}
@@ -1173,21 +1293,6 @@ function AppShell() {
             setCatalogQuery(value);
             navigate({ view: "catalog", search: value });
           }}
-        />
-      )}
-
-      {accessApi && (
-        <CheckoutModal
-          api={accessApi}
-          selectedTier={accessTier}
-          onClose={() => setCheckoutApi(null)}
-          onSelectTier={setCheckoutTier}
-          onStartCheckout={() => void beginCheckout()}
-          onCompleteCheckout={() => void finalizeCheckout()}
-          currentTier={settings.subscription_tier}
-          accessSession={accessSession}
-          recentReceipts={accessReceipts}
-          errorMessage={accessError}
         />
       )}
 
@@ -1684,26 +1789,26 @@ function CollectionsPage({
           </select>
         </div>
         <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-          <button type="button" onClick={onCreate} className="rounded-full bg-blue-500 px-4 py-3 text-sm font-medium text-white shadow-[0_6px_14px_rgba(66,133,244,0.09)] sm:py-2">
+          <button type="button" onClick={onCreate} className="w-full rounded-full bg-blue-500 px-4 py-3 text-sm font-medium text-white shadow-[0_6px_14px_rgba(66,133,244,0.09)] sm:w-auto sm:py-2">
             Save selected API
           </button>
-          <button type="button" onClick={onImport} className="rounded-full border border-slate-200/70 px-4 py-3 text-sm sm:py-2">
+          <button type="button" onClick={onImport} className="w-full rounded-full border border-slate-200/70 px-4 py-3 text-sm sm:w-auto sm:py-2">
             Import JSON
           </button>
           <button
             type="button"
             onClick={() => {
               const sample = selectedCollection?.items[0]?.apiId;
-            if (sample) {
-              onOpenApi(sample);
-            }
-          }}
-          className="rounded-full border border-slate-200/70 px-4 py-3 text-sm sm:py-2"
+              if (sample) {
+                onOpenApi(sample);
+              }
+            }}
+          className="w-full rounded-full border border-slate-200/70 px-4 py-3 text-sm sm:w-auto sm:py-2"
         >
           Open collection sample
         </button>
-      </div>
-    </section>
+        </div>
+      </section>
     </div>
   );
 }
@@ -1772,10 +1877,10 @@ function WorkflowPage({
             )}
           </div>
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-            <button type="button" onClick={onRunAll} className="rounded-full bg-blue-500 px-4 py-3 text-sm font-medium text-white shadow-[0_6px_14px_rgba(66,133,244,0.09)] sm:py-2">
+            <button type="button" onClick={onRunAll} className="w-full rounded-full bg-blue-500 px-4 py-3 text-sm font-medium text-white shadow-[0_6px_14px_rgba(66,133,244,0.09)] sm:w-auto sm:py-2">
               Run full workflow
             </button>
-            <button type="button" onClick={onSave} className="rounded-full border border-slate-200/70 px-4 py-3 text-sm sm:py-2">
+            <button type="button" onClick={onSave} className="w-full rounded-full border border-slate-200/70 px-4 py-3 text-sm sm:w-auto sm:py-2">
               Save workflow
             </button>
             <button
@@ -1786,11 +1891,11 @@ function WorkflowPage({
                 setWorkflowName(source?.name ?? "");
                 setWorkflowDescription(source?.description ?? "");
               }}
-              className="rounded-full border border-slate-200/70 px-4 py-3 text-sm sm:py-2"
+              className="w-full rounded-full border border-slate-200/70 px-4 py-3 text-sm sm:w-auto sm:py-2"
             >
               Load template
             </button>
-            <button type="button" onClick={onImport} className="rounded-full border border-slate-200/70 px-4 py-3 text-sm sm:py-2">
+            <button type="button" onClick={onImport} className="w-full rounded-full border border-slate-200/70 px-4 py-3 text-sm sm:w-auto sm:py-2">
               Import JSON
             </button>
           </div>
@@ -1807,7 +1912,7 @@ function WorkflowPage({
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <div className="text-xs uppercase tracking-[0.25em] text-slate-400">Step {index + 1}</div>
-                <select value={step.apiId} onChange={(event) => setDraft(draft.map((item, itemIndex) => (itemIndex === index ? { ...item, apiId: event.target.value, status: "ready" } : item)))} className="mt-2 max-w-[26rem] rounded-2xl border border-slate-200/70 bg-slate-50 px-4 py-3 text-sm">
+                <select value={step.apiId} onChange={(event) => setDraft(draft.map((item, itemIndex) => (itemIndex === index ? { ...item, apiId: event.target.value, status: "ready" } : item)))} className="mt-2 w-full max-w-[26rem] rounded-2xl border border-slate-200/70 bg-slate-50 px-4 py-3 text-sm">
                   {(() => {
                     const current = catalog.find((api) => api.id === step.apiId);
                     const options = new Map<string, ApiDefinition>();
@@ -1818,9 +1923,9 @@ function WorkflowPage({
                       options.set(api.id, api);
                     }
                     return Array.from(options.values()).map((api) => (
-                    <option key={api.id} value={api.id}>
-                      {api.name}
-                    </option>
+                      <option key={api.id} value={api.id}>
+                        {api.name}
+                      </option>
                     ));
                   })()}
                 </select>
@@ -1857,13 +1962,13 @@ function WorkflowPage({
                 <p className="mt-1 text-sm text-slate-500">{workflow.description}</p>
               </div>
               <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-                <button type="button" onClick={() => onSelectWorkflow(workflow.id)} className="rounded-full border border-slate-200/70 px-3 py-3 text-sm sm:py-2">
+                <button type="button" onClick={() => onSelectWorkflow(workflow.id)} className="w-full rounded-full border border-slate-200/70 px-3 py-3 text-sm sm:w-auto sm:py-2">
                   Open
                 </button>
-                <button type="button" onClick={() => onDuplicate(workflow.id)} className="rounded-full border border-slate-200/70 px-3 py-3 text-sm sm:py-2">
+                <button type="button" onClick={() => onDuplicate(workflow.id)} className="w-full rounded-full border border-slate-200/70 px-3 py-3 text-sm sm:w-auto sm:py-2">
                   Duplicate
                 </button>
-                <button type="button" onClick={() => onExport(workflow.id)} className="rounded-full border border-slate-200/70 px-3 py-3 text-sm sm:py-2">
+                <button type="button" onClick={() => onExport(workflow.id)} className="w-full rounded-full border border-slate-200/70 px-3 py-3 text-sm sm:w-auto sm:py-2">
                   Export
                 </button>
               </div>
@@ -1872,7 +1977,7 @@ function WorkflowPage({
               {workflow.steps.map((step) => {
                 const stepId = workflowStepId(step);
                 return (
-                  <button key={stepId} onClick={() => onSetSelectedApi(stepId)} className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-700">
+                  <button type="button" key={stepId} onClick={() => onSetSelectedApi(stepId)} className="rounded-full bg-slate-100 px-3 py-2 text-xs text-slate-700 sm:py-1">
                     {apiLabelFromId(stepId)}
                   </button>
                 );
@@ -2082,7 +2187,7 @@ function ApiDetailPanel({
       <section className="rounded-[24px] border border-slate-200/60 bg-white p-3 shadow-[0_4px_12px_rgba(15,23,42,0.04)]">
         <div className="flex flex-wrap gap-1">
           {(["overview", "request", "response", "examples", "errors", "code", "history"] as ApiTab[]).map((item) => (
-            <button key={item} onClick={() => setTab(item)} className={`rounded-full px-4 py-2 text-sm ${tab === item ? "bg-blue-400 text-white" : "text-slate-600 hover:bg-slate-100"}`}>
+            <button type="button" key={item} onClick={() => setTab(item)} className={`rounded-full px-4 py-2 text-sm ${tab === item ? "bg-blue-400 text-white" : "text-slate-600 hover:bg-slate-100"}`}>
               {capitalize(item)}
             </button>
           ))}
@@ -2408,7 +2513,292 @@ function SearchOverlay({
           </button>
         </div>
       </div>
+      {showOnboarding && (
+        <OnboardingScreen
+          selected={selectedInterests}
+          onToggle={(interest) =>
+            setSelectedInterests((current) =>
+              current.includes(interest) ? current.filter((value) => value !== interest) : [...current, interest].slice(0, 3),
+            )
+          }
+          onContinue={() => void saveOnboardingState()}
+          onSkip={() => setShowOnboarding(false)}
+        />
+      )}
+      {showSignup && (
+        <SignupScreen
+          draft={signupDraft}
+          onChange={setSignupDraft}
+          onContinue={() => void completeSignup()}
+          onSkip={() => setShowSignup(false)}
+        />
+      )}
     </div>
+  );
+}
+
+function CheckoutPage({
+  api,
+  currentTier,
+  selectedTier,
+  billingConfig,
+  onSelectTier,
+  onStartCheckout,
+  onCancel,
+  onOpenProcessing,
+  recentReceipts,
+  errorMessage,
+}: {
+  api: ApiDefinition | null;
+  currentTier: Settings["subscription_tier"];
+  selectedTier: Settings["subscription_tier"];
+  billingConfig: BillingConfig | null;
+  onSelectTier: (tier: Settings["subscription_tier"]) => void;
+  onStartCheckout: () => void;
+  onCancel: () => void;
+  onOpenProcessing: () => void;
+  recentReceipts: CheckoutReceipt[];
+  errorMessage: string | null;
+}) {
+  const targetApi = api;
+  const selectedPlan = SUBSCRIPTION_PLANS.find((plan) => plan.tier === selectedTier) ?? SUBSCRIPTION_PLANS[0];
+  return (
+    <section className="space-y-6">
+      <div className="rounded-[32px] border border-slate-200/60 bg-white p-5 shadow-[0_8px_22px_rgba(15,23,42,0.045)] md:p-8">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="inline-flex rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-500">Checkout</div>
+            <h2 className="mt-4 text-3xl font-semibold tracking-tight text-slate-900">{targetApi ? `Purchase access to ${targetApi.name}` : "Checkout"}</h2>
+            <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">
+              Complete your Square payment in a dedicated checkout flow. Successful purchases are recorded locally with a receipt and can unlock the selected Magnexis tier.
+            </p>
+          </div>
+          <button type="button" onClick={onCancel} className="rounded-full border border-slate-200/70 bg-white px-4 py-3 text-sm text-slate-600">
+            Cancel
+          </button>
+        </div>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+        <div className="rounded-[32px] border border-slate-200/60 bg-white p-5 shadow-[0_8px_22px_rgba(15,23,42,0.045)] md:p-8">
+          {errorMessage && <div className="mb-4 rounded-[18px] border border-rose-200/70 bg-rose-50 p-4 text-sm text-rose-700">{errorMessage}</div>}
+          <div className="grid gap-3 md:grid-cols-3">
+            {SUBSCRIPTION_PLANS.map((plan) => (
+              <button
+                key={plan.tier}
+                type="button"
+                disabled={plan.tier === "free"}
+                onClick={() => onSelectTier(plan.tier)}
+                className={`rounded-[24px] border p-4 text-left transition hover:shadow-[0_8px_18px_rgba(15,23,42,0.06)] ${selectedTier === plan.tier ? "border-blue-100/80 bg-blue-50 shadow-[0_4px_10px_rgba(66,133,244,0.06)]" : "border-slate-200/60 bg-white"} ${plan.tier === "free" ? "cursor-not-allowed opacity-70" : ""}`}
+              >
+                <div className="text-sm font-semibold text-slate-900">{plan.label}</div>
+                <div className="mt-1 text-[22px] font-semibold tracking-tight text-slate-900">{plan.price}</div>
+                <div className="mt-2 text-xs leading-5 text-slate-500">{plan.description}</div>
+              </button>
+            ))}
+          </div>
+
+          <div className="mt-5 rounded-[24px] border border-slate-200/60 bg-slate-50 p-4 text-sm text-slate-700">
+            {targetApi ? (
+              <>
+                <div className="font-semibold text-slate-900">{targetApi.endpoint}</div>
+                <div className="mt-2">{targetApi.description}</div>
+                <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-500">
+                  <span className="rounded-full bg-white px-3 py-1 shadow-[0_2px_6px_rgba(15,23,42,0.04)]">{targetApi.method}</span>
+                  <span className="rounded-full bg-white px-3 py-1 shadow-[0_2px_6px_rgba(15,23,42,0.04)]">Requires {tierLabel(targetApi.requiredTier)}</span>
+                  <span className="rounded-full bg-white px-3 py-1 shadow-[0_2px_6px_rgba(15,23,42,0.04)]">Current {tierLabel(currentTier)}</span>
+                </div>
+              </>
+            ) : (
+              <div>No API is attached to this checkout yet.</div>
+            )}
+          </div>
+
+          <div className="mt-5 rounded-[24px] border border-blue-100/70 bg-blue-50 p-4 text-sm text-slate-700">
+            {billingConfig?.configured ? (
+              <div>
+                Square payment is configured. The payment link opens after you click continue, and the success/cancel pages are ready to receive you back.
+              </div>
+            ) : (
+              <div>Square payment links are not configured yet. The continue button is disabled until the link is added in environment settings.</div>
+            )}
+          </div>
+
+          <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+            <button type="button" onClick={onCancel} className="rounded-full border border-slate-200/70 bg-white px-5 py-3 text-sm text-slate-600">
+              Back
+            </button>
+            <button
+              type="button"
+              onClick={onStartCheckout}
+              disabled={!billingConfig?.configured || !targetApi}
+              className="rounded-full bg-blue-400 px-5 py-3 text-sm font-medium text-white shadow-[0_8px_18px_rgba(66,133,244,0.08)] disabled:cursor-not-allowed disabled:bg-slate-300"
+            >
+              Continue to Square
+            </button>
+            <button type="button" onClick={onOpenProcessing} className="rounded-full border border-blue-100 bg-white px-5 py-3 text-sm font-medium text-blue-500">
+              Open processing page
+            </button>
+          </div>
+        </div>
+
+        <div className="space-y-6">
+          <div className="rounded-[32px] border border-slate-200/60 bg-white p-5 shadow-[0_8px_22px_rgba(15,23,42,0.045)] md:p-8">
+            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Order summary</div>
+            <div className="mt-4 space-y-3">
+              <InfoRow label="Plan" value={selectedPlan.label} />
+              <InfoRow label="Price" value={selectedPlan.price} />
+              <InfoRow label="Status" value="Waiting for checkout" />
+            </div>
+          </div>
+          <div className="rounded-[32px] border border-slate-200/60 bg-white p-5 shadow-[0_8px_22px_rgba(15,23,42,0.045)] md:p-8">
+            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Recent receipts</div>
+            <div className="mt-4 space-y-3">
+              {recentReceipts.slice(0, 3).map((receipt) => (
+                <div key={receipt.id} className="rounded-[18px] border border-slate-200/60 bg-slate-50 p-3 text-sm">
+                  <div className="font-medium text-slate-900">{receipt.receiptNumber}</div>
+                  <div className="mt-1 text-xs text-slate-500">
+                    {receipt.apiName} · {formatCurrency(receipt.amountCents, receipt.currency)}
+                  </div>
+                </div>
+              ))}
+              {!recentReceipts.length && <div className="text-sm text-slate-500">No recent checkout receipts.</div>}
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PaymentSuccessPage({
+  receipt,
+  api,
+  onReturnHome,
+  onViewPurchased,
+  onOpenReceipt,
+}: {
+  receipt: CheckoutReceipt | null;
+  api: ApiDefinition | null;
+  onReturnHome: () => void;
+  onViewPurchased: () => void;
+  onOpenReceipt: () => void;
+}) {
+  return (
+    <section className="mx-auto max-w-4xl space-y-6 py-6">
+      <div className="rounded-[32px] border border-slate-200/60 bg-white p-6 shadow-[0_8px_22px_rgba(15,23,42,0.045)] md:p-10">
+        <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
+          <svg viewBox="0 0 24 24" aria-hidden="true" className="h-10 w-10 fill-none stroke-current stroke-[2.5]">
+            <path d="M4 12l5 5L20 6" />
+          </svg>
+        </div>
+        <h2 className="mt-6 text-center text-3xl font-semibold tracking-tight text-slate-900">Payment successful</h2>
+        <p className="mt-3 text-center text-sm leading-7 text-slate-600">Thank you for your purchase. Your payment has been confirmed and the receipt is ready below.</p>
+
+        <div className="mt-8 grid gap-4 md:grid-cols-2">
+          <div className="rounded-[24px] border border-slate-200/60 bg-slate-50 p-4">
+            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Order reference</div>
+            <div className="mt-2 text-lg font-semibold tracking-tight text-slate-900">{receipt?.receiptNumber ?? "Pending receipt"}</div>
+          </div>
+          <div className="rounded-[24px] border border-slate-200/60 bg-slate-50 p-4">
+            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Purchased item</div>
+            <div className="mt-2 text-lg font-semibold tracking-tight text-slate-900">{receipt?.apiName ?? api?.name ?? "Magnexis product"}</div>
+          </div>
+        </div>
+
+        <div className="mt-6 rounded-[24px] border border-blue-100/70 bg-blue-50 p-4 text-sm text-slate-700">
+          {receipt ? `Receipt status: ${capitalize(receipt.status)} · Provider: ${capitalize(receipt.provider)} · Amount: ${formatCurrency(receipt.amountCents, receipt.currency)}` : "Receipt details will appear once the checkout session is finalized."}
+        </div>
+
+        <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+          <button type="button" onClick={onReturnHome} className="rounded-full border border-slate-200/70 bg-white px-5 py-3 text-sm text-slate-600">
+            Return home
+          </button>
+          <button type="button" onClick={onViewPurchased} disabled={!api} className="rounded-full bg-blue-400 px-5 py-3 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-slate-300">
+            View purchased content
+          </button>
+          <button type="button" onClick={onOpenReceipt} className="rounded-full border border-blue-100 bg-white px-5 py-3 text-sm font-medium text-blue-500">
+            View receipt
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PaymentCancelledPage({ onTryAgain, onReturnHome }: { onTryAgain: () => void; onReturnHome: () => void }) {
+  return (
+    <section className="mx-auto max-w-3xl py-8">
+      <div className="rounded-[32px] border border-slate-200/60 bg-white p-6 text-center shadow-[0_8px_22px_rgba(15,23,42,0.045)] md:p-10">
+        <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-amber-50 text-amber-600">
+          <svg viewBox="0 0 24 24" aria-hidden="true" className="h-10 w-10 fill-none stroke-current stroke-[2.5]">
+            <path d="M12 8v5" />
+            <path d="M12 17h.01" />
+            <path d="M10.3 4.5h3.4l8.2 14.2-1.7 3H3.8l-1.7-3z" />
+          </svg>
+        </div>
+        <h2 className="mt-6 text-3xl font-semibold tracking-tight text-slate-900">Payment cancelled</h2>
+        <p className="mt-3 text-sm leading-7 text-slate-600">No payment was processed. You can safely try again when you’re ready.</p>
+        <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
+          <button type="button" onClick={onTryAgain} className="rounded-full bg-blue-400 px-5 py-3 text-sm font-medium text-white">
+            Try again
+          </button>
+          <button type="button" onClick={onReturnHome} className="rounded-full border border-slate-200/70 bg-white px-5 py-3 text-sm text-slate-600">
+            Return home
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PaymentProcessingPage({
+  receipt,
+  api,
+  onVerify,
+  onReturnHome,
+  onCancel,
+}: {
+  receipt: CheckoutReceipt | null;
+  api: ApiDefinition | null;
+  onVerify: () => void;
+  onReturnHome: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <section className="mx-auto max-w-4xl py-8">
+      <div className="rounded-[32px] border border-slate-200/60 bg-white p-6 shadow-[0_8px_22px_rgba(15,23,42,0.045)] md:p-10">
+        <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-blue-50 text-blue-500">
+          <svg viewBox="0 0 24 24" aria-hidden="true" className="h-10 w-10 fill-none stroke-current stroke-[2.5]">
+            <circle cx="12" cy="12" r="8" />
+            <path d="M12 8v4l3 2" />
+          </svg>
+        </div>
+        <h2 className="mt-6 text-center text-3xl font-semibold tracking-tight text-slate-900">Payment processing</h2>
+        <p className="mt-3 text-center text-sm leading-7 text-slate-600">
+          We’re waiting for Square confirmation. If you’ve completed the checkout flow, verify the receipt here and the app will unlock the product immediately.
+        </p>
+
+        <div className="mt-8 grid gap-4 md:grid-cols-2">
+          <InfoRow label="API" value={receipt?.apiName ?? api?.name ?? "Selected product"} />
+          <InfoRow label="Receipt" value={receipt?.receiptNumber ?? "Waiting for receipt"} />
+          <InfoRow label="Status" value={receipt ? capitalize(receipt.status) : "Pending"} />
+          <InfoRow label="Provider" value={receipt ? capitalize(receipt.provider) : "Square"} />
+        </div>
+
+        <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+          <button type="button" onClick={onVerify} className="rounded-full bg-blue-400 px-5 py-3 text-sm font-medium text-white">
+            Verify payment
+          </button>
+          <button type="button" onClick={onCancel} className="rounded-full border border-slate-200/70 bg-white px-5 py-3 text-sm text-slate-600">
+            Cancel payment
+          </button>
+          <button type="button" onClick={onReturnHome} className="rounded-full border border-blue-100 bg-white px-5 py-3 text-sm font-medium text-blue-500">
+            Return home
+          </button>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -2541,7 +2931,7 @@ function CheckoutModal({
                       <InfoRow label="Access URL" value={receipt.accessUrl} mono />
                     </div>
                   </div>
-                    <div className="mt-5 rounded-[22px] bg-blue-50 p-4 text-sm text-slate-700">
+                  <div className="mt-5 rounded-[22px] bg-blue-50 p-4 text-sm text-slate-700">
                     Open the access link, finish the confirmation step, then click the confirmation button to apply the subscription tier locally.
                   </div>
                   <div className="mt-5 flex flex-wrap gap-3">
@@ -2584,7 +2974,7 @@ function CheckoutModal({
         </div>
       </div>
     </div>
-  );
+   );
 }
 
 function CoinModal({
@@ -2613,9 +3003,9 @@ function CoinModal({
           <div className="mt-5 rounded-[24px] border border-blue-100/70 bg-white p-4 shadow-[0_4px_12px_rgba(15,23,42,0.04)]">
             <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">API coin rules</div>
             <ul className="mt-3 space-y-2 text-sm text-slate-600">
-              <li>• Each account starts with one coin.</li>
-              <li>• Coins are non-refundable and limited to one per person.</li>
-              <li>• Coins can unlock one protected or rate-limited execution.</li>
+              <li>Each account starts with one coin.</li>
+              <li>Coins are non-refundable and limited to one per person.</li>
+              <li>Coins can unlock one protected or rate-limited execution.</li>
             </ul>
           </div>
           <div className="mt-5 flex gap-3">
@@ -2636,14 +3026,15 @@ function SignupScreen({
   draft,
   onChange,
   onContinue,
+  onSkip,
 }: {
   draft: { displayName: string; email: string };
   onChange: (value: { displayName: string; email: string }) => void;
   onContinue: () => void;
+  onSkip: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-3xl rounded-[28px] border border-slate-200/60 bg-white p-6 shadow-[0_18px_44px_rgba(15,23,42,0.14)] md:p-8">
+    <div className="fixed bottom-4 left-4 right-4 z-50 mx-auto w-full max-w-3xl rounded-[28px] border border-slate-200/60 bg-white p-6 shadow-[0_18px_44px_rgba(15,23,42,0.14)] sm:left-auto sm:right-4 sm:w-[min(92vw,48rem)] md:p-8">
         <div className="inline-flex rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-500">Create your Magnexis account</div>
         <h2 className="mt-4 text-3xl font-semibold text-slate-900">Sign up to claim your one API coin</h2>
         <p className="mt-2 text-sm text-slate-500">This account is local to your browser workspace and unlocks onboarding, saved state, and one Magnexis API Coin.</p>
@@ -2667,6 +3058,13 @@ function SignupScreen({
         <div className="mt-5 flex justify-end gap-3">
           <button
             type="button"
+            onClick={onSkip}
+            className="rounded-full border border-slate-200/70 bg-white px-5 py-3 text-sm text-slate-600"
+          >
+            Skip for now
+          </button>
+          <button
+            type="button"
             onClick={onContinue}
             disabled={!draft.email.trim()}
             className="rounded-full bg-blue-400 px-5 py-3 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-slate-300"
@@ -2675,7 +3073,6 @@ function SignupScreen({
           </button>
         </div>
       </div>
-    </div>
   );
 }
 
@@ -2683,14 +3080,15 @@ function OnboardingScreen({
   selected,
   onToggle,
   onContinue,
+  onSkip,
 }: {
   selected: string[];
   onToggle: (interest: string) => void;
   onContinue: () => void;
+  onSkip: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-3xl rounded-[28px] border border-slate-200/60 bg-white p-6 shadow-[0_18px_44px_rgba(15,23,42,0.14)]">
+    <div className="fixed bottom-4 left-4 right-4 z-50 mx-auto w-full max-w-3xl rounded-[28px] border border-slate-200/60 bg-white p-6 shadow-[0_18px_44px_rgba(15,23,42,0.14)] sm:left-auto sm:right-4 sm:w-[min(92vw,48rem)] md:p-8">
         <div className="inline-flex rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-500">Welcome to Magnexis APIHub</div>
         <h2 className="mt-4 text-3xl font-semibold text-slate-900">Choose your interests</h2>
         <p className="mt-2 text-sm text-slate-500">We will recommend API packs, starter collections, and coin guidance based on what you want to build.</p>
@@ -2707,11 +3105,13 @@ function OnboardingScreen({
           ))}
         </div>
         <div className="mt-5 flex justify-end gap-3">
+          <button type="button" onClick={onSkip} className="rounded-full border border-slate-200/70 bg-white px-5 py-3 text-sm text-slate-600">
+            Skip for now
+          </button>
           <button onClick={onContinue} className="rounded-full bg-blue-400 px-5 py-3 text-sm font-medium text-white">
             Continue
           </button>
         </div>
-      </div>
     </div>
   );
 }
@@ -3070,62 +3470,105 @@ function safeJson(value: string): Record<string, unknown> {
   }
 }
 
-function parseRoute(hash: string): AppRoute {
-  const cleaned = hash.replace(/^#\/?/, "").replace(/^\/+/, "");
-  const parts = cleaned ? cleaned.split("/").filter(Boolean) : [];
+function readRouteFromWindow(): AppRoute {
+  const pathname = window.location.pathname.replace(/^\/+/, "");
+  const fallback = window.location.hash.replace(/^#\/?/, "").replace(/^\/+/, "");
+  const rawPath = pathname || fallback;
+  const parts = rawPath ? rawPath.split("/").filter(Boolean) : [];
+  const searchParams = new URLSearchParams(window.location.search);
   const view = (parts[0] as AppView | "search" | undefined) ?? "dashboard";
-  if (!["dashboard", "catalog", "playground", "collections", "workflows", "settings", "search"].includes(view)) {
+  if (!["dashboard", "catalog", "playground", "collections", "workflows", "settings", "checkout", "payment-success", "payment-cancelled", "payment-processing", "search"].includes(view)) {
     return { view: "dashboard" };
   }
   if (view === "search") {
     return { view: "catalog", search: decodeURIComponent(parts.slice(1).join("/")) };
   }
   if (view === "catalog") {
-    const apiId = parts[1] ? decodeURIComponent(parts[1]) : undefined;
+    const apiId = parts[1] ? decodeURIComponent(parts[1]) : searchParams.get("apiId") ?? undefined;
     const tab = isApiTab(parts[2]) ? (parts[2] as ApiTab) : undefined;
     return {
       view,
       apiId,
       tab,
-      requestId: tab === "history" && parts[3] ? decodeURIComponent(parts[3]) : undefined,
+      requestId: tab === "history" && parts[3] ? decodeURIComponent(parts[3]) : searchParams.get("requestId") ?? undefined,
     };
   }
   if (view === "playground") {
     return {
       view,
-      apiId: parts[1] ? decodeURIComponent(parts[1]) : undefined,
+      apiId: parts[1] ? decodeURIComponent(parts[1]) : searchParams.get("apiId") ?? undefined,
     };
   }
   if (view === "collections") {
-    return { view, collectionId: parts[1] ? decodeURIComponent(parts[1]) : undefined };
+    return { view, collectionId: parts[1] ? decodeURIComponent(parts[1]) : searchParams.get("collectionId") ?? undefined };
   }
   if (view === "workflows") {
-    return { view, workflowId: parts[1] ? decodeURIComponent(parts[1]) : undefined };
+    return { view, workflowId: parts[1] ? decodeURIComponent(parts[1]) : searchParams.get("workflowId") ?? undefined };
+  }
+  if (view === "checkout") {
+    return {
+      view,
+      apiId: searchParams.get("apiId") ?? undefined,
+      paymentTier: (searchParams.get("tier") as Settings["subscription_tier"] | null) ?? undefined,
+      receiptId: searchParams.get("receiptId") ?? undefined,
+    };
+  }
+  if (view === "payment-success" || view === "payment-cancelled" || view === "payment-processing") {
+    return {
+      view,
+      receiptId: searchParams.get("receiptId") ?? undefined,
+      apiId: searchParams.get("apiId") ?? undefined,
+      paymentTier: (searchParams.get("tier") as Settings["subscription_tier"] | null) ?? undefined,
+    };
   }
   return { view };
 }
 
-function buildHash(route: AppRoute): string {
+function normalizeRoute(route: AppRoute): AppRoute {
+  if (route.view === "checkout") {
+    return { view: route.view, apiId: route.apiId, paymentTier: route.paymentTier ?? "pro", receiptId: route.receiptId };
+  }
+  return route;
+}
+
+function buildRouteUrl(route: AppRoute): string {
   if (route.search !== undefined) {
-    return `#/search/${encodeURIComponent(route.search)}`;
+    return `/catalog?query=${encodeURIComponent(route.search)}`;
   }
   if (route.view === "catalog") {
-    const tab = route.tab ? `/${route.tab}` : "";
-    const api = route.apiId ? `/${encodeURIComponent(route.apiId)}` : "";
-    const request = route.requestId ? `/${encodeURIComponent(route.requestId)}` : "";
-    return `#/catalog${api}${tab}${request}`;
+    const params = new URLSearchParams();
+    if (route.apiId) params.set("apiId", route.apiId);
+    if (route.tab) params.set("tab", route.tab);
+    if (route.requestId) params.set("requestId", route.requestId);
+    const query = params.toString();
+    return query ? `/catalog?${query}` : "/catalog";
   }
   if (route.view === "playground") {
-    const api = route.apiId ? `/${encodeURIComponent(route.apiId)}` : "";
-    return `#/playground${api}`;
+    return route.apiId ? `/playground?apiId=${encodeURIComponent(route.apiId)}` : "/playground";
   }
   if (route.view === "collections") {
-    return route.collectionId ? `#/collections/${encodeURIComponent(route.collectionId)}` : "#/collections";
+    return route.collectionId ? `/collections?collectionId=${encodeURIComponent(route.collectionId)}` : "/collections";
   }
   if (route.view === "workflows") {
-    return route.workflowId ? `#/workflows/${encodeURIComponent(route.workflowId)}` : "#/workflows";
+    return route.workflowId ? `/workflows?workflowId=${encodeURIComponent(route.workflowId)}` : "/workflows";
   }
-  return `#/${route.view}`;
+  if (route.view === "checkout") {
+    const params = new URLSearchParams();
+    if (route.apiId) params.set("apiId", route.apiId);
+    if (route.paymentTier) params.set("tier", route.paymentTier);
+    if (route.receiptId) params.set("receiptId", route.receiptId);
+    const query = params.toString();
+    return query ? `/checkout?${query}` : "/checkout";
+  }
+  if (route.view === "payment-success" || route.view === "payment-cancelled" || route.view === "payment-processing") {
+    const params = new URLSearchParams();
+    if (route.receiptId) params.set("receiptId", route.receiptId);
+    if (route.apiId) params.set("apiId", route.apiId);
+    if (route.paymentTier) params.set("tier", route.paymentTier);
+    const query = params.toString();
+    return query ? `/${route.view}?${query}` : `/${route.view}`;
+  }
+  return `/${route.view}`;
 }
 
 function isApiTab(value: string | undefined): value is ApiTab {

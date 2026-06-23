@@ -1331,3 +1331,6 @@ The entries below are organized by category and are intended to make the 700+ AP
 - If deployment fails, verify the frontend build step and the backend CORS origins
 
 
+## Appendix E - A Work In Progress
+
+Thia site/marketplace is still actively being updated and fixed. 

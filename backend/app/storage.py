@@ -447,12 +447,34 @@ def get_settings() -> dict[str, Any]:
         rows = _fetch_rows(_execute(conn, "SELECT key, value FROM settings"))
     settings = {row["key"]: json.loads(row["value"]) for row in rows}
     settings.setdefault("subscription_tier", "free")
+    settings["subscription_tier"] = get_paid_subscription_tier()
     return settings
 
 
+def _tier_rank(tier: str) -> int:
+    order = {"free": 0, "pro": 1, "enterprise": 2}
+    return order.get(str(tier).strip().lower(), 0)
+
+
+def get_paid_subscription_tier() -> str:
+    with db() as conn:
+        rows = _fetch_rows(
+            _execute(
+                conn,
+                "SELECT tier FROM checkout_receipts WHERE status = 'paid' ORDER BY updated_at DESC, created_at DESC",
+            )
+        )
+    if not rows:
+        return "free"
+    return max((str(row["tier"]).strip().lower() for row in rows), key=_tier_rank, default="free")
+
+
 def update_settings(payload: dict[str, Any]) -> dict[str, Any]:
+    effective_tier = get_paid_subscription_tier()
     with db() as conn:
         for key, value in payload.items():
+            if key == "subscription_tier":
+                value = effective_tier
             if using_postgres():
                 _execute(conn, "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", (key, json.dumps(value)))
             else:
