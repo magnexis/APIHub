@@ -220,6 +220,17 @@ function AppShell() {
     () => accessApi ?? catalog.find((item) => item.id === route.apiId) ?? selectedApi ?? null,
     [accessApi, catalog, route.apiId, selectedApi],
   );
+  const paymentReceipt = useMemo(
+    () => accessSession?.receipt ?? (route.receiptId ? accessReceipts.find((item) => item.id === route.receiptId) ?? null : null),
+    [accessReceipts, accessSession, route.receiptId],
+  );
+  const paymentApi = useMemo(() => {
+    const apiId = paymentReceipt?.apiId ?? route.apiId ?? checkoutApi?.id ?? selectedApi?.id ?? null;
+    if (!apiId) {
+      return checkoutApi ?? selectedApi ?? null;
+    }
+    return catalog.find((item) => item.id === apiId) ?? checkoutApi ?? selectedApi ?? null;
+  }, [catalog, checkoutApi, paymentReceipt?.apiId, route.apiId, selectedApi]);
   const isPaymentView = view === "checkout" || view === "payment-success" || view === "payment-cancelled" || view === "payment-processing";
   const [catalogLimit, setCatalogLimit] = useState(120);
   const deferredQuery = useDeferredValue(query);
@@ -299,7 +310,7 @@ function AppShell() {
   }, [route.paymentTier, route.view]);
 
   useEffect(() => {
-    if (!route.receiptId || !["checkout", "payment-success", "payment-processing"].includes(view)) {
+    if (!route.receiptId || !["checkout", "payment-success", "payment-processing", "payment-cancelled"].includes(view)) {
       return;
     }
     let cancelled = false;
@@ -686,7 +697,7 @@ function AppShell() {
   }
 
   async function beginCheckout() {
-    const api = accessApi;
+    const api = checkoutApi;
     if (!api || !billingConfig?.configured) {
       return;
     }
@@ -708,6 +719,7 @@ function AppShell() {
     if (!receiptKey) {
       return;
     }
+    const api = checkoutApi;
     setCheckoutError(null);
     try {
       const updated = await completeCheckout({ receiptId: receiptKey });
@@ -715,8 +727,10 @@ function AppShell() {
       setSettingsDraft(updated.settings);
       setCheckoutReceipts((current) => current.map((receipt) => (receipt.id === updated.receipt.id ? updated.receipt : receipt)));
       setCheckoutSession((current) => (current?.receipt.id === updated.receipt.id ? { ...current, receipt: updated.receipt } : current));
-      setCheckoutApi((current) => current ?? catalog.find((api) => api.id === route.apiId) ?? null);
-      navigate({ view: "payment-success", apiId: route.apiId ?? accessApi?.id, receiptId: updated.receipt.id, paymentTier: updated.receipt.tier });
+      if (api) {
+        setCheckoutApi(api);
+      }
+      navigate({ view: "payment-success", apiId: updated.receipt.apiId ?? api?.id ?? route.apiId, receiptId: updated.receipt.id, paymentTier: updated.receipt.tier });
     } catch (error) {
       setCheckoutError(error instanceof Error ? error.message : "Unable to complete access flow");
     }
@@ -984,7 +998,7 @@ function AppShell() {
             <section className="min-h-0 overflow-auto px-4 py-5 md:px-6">
               {view === "checkout" && (
                 <CheckoutPage
-                  api={checkoutApi}
+                  api={paymentApi}
                   currentTier={settings.subscription_tier}
                   selectedTier={route.paymentTier ?? accessTier}
                   billingConfig={billingConfig}
@@ -1004,28 +1018,28 @@ function AppShell() {
 
               {view === "payment-success" && (
                 <PaymentSuccessPage
-                  receipt={accessSession?.receipt ?? (route.receiptId ? accessReceipts.find((item) => item.id === route.receiptId) ?? null : null)}
-                  api={checkoutApi}
+                  receipt={paymentReceipt}
+                  api={paymentApi}
                   onReturnHome={() => navigate({ view: "dashboard" })}
-                  onViewPurchased={() => navigate({ view: "playground", apiId: checkoutApi?.id })}
-                  onOpenReceipt={() => navigate({ view: "payment-processing", apiId: checkoutApi?.id, receiptId: accessSession?.receipt.id ?? route.receiptId, paymentTier: accessSession?.receipt.tier ?? route.paymentTier })}
+                  onViewPurchased={() => navigate({ view: "playground", apiId: paymentApi?.id })}
+                  onOpenReceipt={() => navigate({ view: "payment-processing", apiId: paymentApi?.id, receiptId: paymentReceipt?.id ?? route.receiptId, paymentTier: paymentReceipt?.tier ?? route.paymentTier })}
                 />
               )}
 
               {view === "payment-cancelled" && (
                 <PaymentCancelledPage
-                  onTryAgain={() => navigate({ view: "checkout", apiId: checkoutApi?.id, paymentTier: accessSession?.receipt.tier ?? route.paymentTier })}
+                  onTryAgain={() => navigate({ view: "checkout", apiId: paymentApi?.id, paymentTier: paymentReceipt?.tier ?? route.paymentTier })}
                   onReturnHome={() => navigate({ view: "dashboard" })}
                 />
               )}
 
               {view === "payment-processing" && (
                 <PaymentProcessingPage
-                  receipt={accessSession?.receipt ?? (route.receiptId ? accessReceipts.find((item) => item.id === route.receiptId) ?? null : null)}
-                  api={checkoutApi}
-                  onVerify={() => void finalizeCheckout(route.receiptId ?? accessSession?.receipt.id)}
+                  receipt={paymentReceipt}
+                  api={paymentApi}
+                  onVerify={() => void finalizeCheckout(route.receiptId ?? paymentReceipt?.id)}
                   onReturnHome={() => navigate({ view: "dashboard" })}
-                  onCancel={() => navigate({ view: "payment-cancelled", apiId: checkoutApi?.id, receiptId: route.receiptId, paymentTier: route.paymentTier })}
+                  onCancel={() => navigate({ view: "payment-cancelled", apiId: paymentApi?.id, receiptId: route.receiptId ?? paymentReceipt?.id, paymentTier: route.paymentTier ?? paymentReceipt?.tier })}
                 />
               )}
 
@@ -2513,26 +2527,6 @@ function SearchOverlay({
           </button>
         </div>
       </div>
-      {showOnboarding && (
-        <OnboardingScreen
-          selected={selectedInterests}
-          onToggle={(interest) =>
-            setSelectedInterests((current) =>
-              current.includes(interest) ? current.filter((value) => value !== interest) : [...current, interest].slice(0, 3),
-            )
-          }
-          onContinue={() => void saveOnboardingState()}
-          onSkip={() => setShowOnboarding(false)}
-        />
-      )}
-      {showSignup && (
-        <SignupScreen
-          draft={signupDraft}
-          onChange={setSignupDraft}
-          onContinue={() => void completeSignup()}
-          onSkip={() => setShowSignup(false)}
-        />
-      )}
     </div>
   );
 }
@@ -2564,23 +2558,36 @@ function CheckoutPage({
   const selectedPlan = SUBSCRIPTION_PLANS.find((plan) => plan.tier === selectedTier) ?? SUBSCRIPTION_PLANS[0];
   return (
     <section className="space-y-6">
-      <div className="rounded-[32px] border border-slate-200/60 bg-white p-5 shadow-[0_8px_22px_rgba(15,23,42,0.045)] md:p-8">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div className="inline-flex rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-500">Checkout</div>
-            <h2 className="mt-4 text-3xl font-semibold tracking-tight text-slate-900">{targetApi ? `Purchase access to ${targetApi.name}` : "Checkout"}</h2>
-            <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">
-              Complete your Square payment in a dedicated checkout flow. Successful purchases are recorded locally with a receipt and can unlock the selected Magnexis tier.
-            </p>
-          </div>
-          <button type="button" onClick={onCancel} className="rounded-full border border-slate-200/70 bg-white px-4 py-3 text-sm text-slate-600">
-            Cancel
-          </button>
-        </div>
-      </div>
-
-      <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+      <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+        <PaymentScene variant="checkout" api={targetApi} receipt={null} />
         <div className="rounded-[32px] border border-slate-200/60 bg-white p-5 shadow-[0_8px_22px_rgba(15,23,42,0.045)] md:p-8">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <div className="inline-flex rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-500">Checkout</div>
+              <h2 className="mt-4 text-3xl font-semibold tracking-tight text-slate-900">{targetApi ? `Purchase access to ${targetApi.name}` : "Checkout"}</h2>
+              <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">
+                Complete your Square payment in a dedicated checkout flow. Successful purchases are recorded locally with a receipt and can unlock the selected Magnexis tier.
+              </p>
+            </div>
+            <button type="button" onClick={onCancel} className="rounded-full border border-slate-200/70 bg-white px-4 py-3 text-sm text-slate-600">
+              Cancel
+            </button>
+          </div>
+
+          <div className="mt-6 rounded-[26px] border border-slate-200/60 bg-white p-5 shadow-[0_4px_12px_rgba(15,23,42,0.04)]">
+            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Payment preview</div>
+            <div className="mt-4 flex items-center justify-between rounded-[22px] bg-slate-50 px-4 py-4">
+              <div>
+                <div className="text-sm font-semibold text-slate-900">{selectedPlan.label}</div>
+                <div className="text-xs text-slate-500">{billingConfig?.configured ? "Square payment link ready" : "Configure Square to enable checkout"}</div>
+              </div>
+              <div className="text-right">
+                <div className="text-lg font-semibold tracking-tight text-slate-900">{selectedPlan.price}</div>
+                <div className="text-xs text-slate-500">{targetApi ? tierLabel(targetApi.requiredTier) : "—"}</div>
+              </div>
+            </div>
+          </div>
+
           {errorMessage && <div className="mb-4 rounded-[18px] border border-rose-200/70 bg-rose-50 p-4 text-sm text-rose-700">{errorMessage}</div>}
           <div className="grid gap-3 md:grid-cols-3">
             {SUBSCRIPTION_PLANS.map((plan) => (
@@ -2685,41 +2692,44 @@ function PaymentSuccessPage({
   onOpenReceipt: () => void;
 }) {
   return (
-    <section className="mx-auto max-w-4xl space-y-6 py-6">
-      <div className="rounded-[32px] border border-slate-200/60 bg-white p-6 shadow-[0_8px_22px_rgba(15,23,42,0.045)] md:p-10">
-        <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
-          <svg viewBox="0 0 24 24" aria-hidden="true" className="h-10 w-10 fill-none stroke-current stroke-[2.5]">
-            <path d="M4 12l5 5L20 6" />
-          </svg>
-        </div>
-        <h2 className="mt-6 text-center text-3xl font-semibold tracking-tight text-slate-900">Payment successful</h2>
-        <p className="mt-3 text-center text-sm leading-7 text-slate-600">Thank you for your purchase. Your payment has been confirmed and the receipt is ready below.</p>
-
-        <div className="mt-8 grid gap-4 md:grid-cols-2">
-          <div className="rounded-[24px] border border-slate-200/60 bg-slate-50 p-4">
-            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Order reference</div>
-            <div className="mt-2 text-lg font-semibold tracking-tight text-slate-900">{receipt?.receiptNumber ?? "Pending receipt"}</div>
+    <section className="mx-auto max-w-6xl space-y-6 py-6">
+      <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+        <PaymentScene variant="success" api={api} receipt={receipt} />
+        <div className="rounded-[32px] border border-slate-200/60 bg-white p-6 shadow-[0_8px_22px_rgba(15,23,42,0.045)] md:p-10">
+          <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
+            <svg viewBox="0 0 24 24" aria-hidden="true" className="h-10 w-10 fill-none stroke-current stroke-[2.5]">
+              <path d="M4 12l5 5L20 6" />
+            </svg>
           </div>
-          <div className="rounded-[24px] border border-slate-200/60 bg-slate-50 p-4">
-            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Purchased item</div>
-            <div className="mt-2 text-lg font-semibold tracking-tight text-slate-900">{receipt?.apiName ?? api?.name ?? "Magnexis product"}</div>
+          <h2 className="mt-6 text-center text-3xl font-semibold tracking-tight text-slate-900">Payment successful</h2>
+          <p className="mt-3 text-center text-sm leading-7 text-slate-600">Thank you for your purchase. Your payment has been confirmed and the receipt is ready below.</p>
+
+          <div className="mt-8 grid gap-4 md:grid-cols-2">
+            <div className="rounded-[24px] border border-slate-200/60 bg-slate-50 p-4">
+              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Order reference</div>
+              <div className="mt-2 text-lg font-semibold tracking-tight text-slate-900">{receipt?.receiptNumber ?? "Pending receipt"}</div>
+            </div>
+            <div className="rounded-[24px] border border-slate-200/60 bg-slate-50 p-4">
+              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Purchased item</div>
+              <div className="mt-2 text-lg font-semibold tracking-tight text-slate-900">{receipt?.apiName ?? api?.name ?? "Magnexis product"}</div>
+            </div>
           </div>
-        </div>
 
-        <div className="mt-6 rounded-[24px] border border-blue-100/70 bg-blue-50 p-4 text-sm text-slate-700">
-          {receipt ? `Receipt status: ${capitalize(receipt.status)} · Provider: ${capitalize(receipt.provider)} · Amount: ${formatCurrency(receipt.amountCents, receipt.currency)}` : "Receipt details will appear once the checkout session is finalized."}
-        </div>
+          <div className="mt-6 rounded-[24px] border border-blue-100/70 bg-blue-50 p-4 text-sm text-slate-700">
+            {receipt ? `Receipt status: ${capitalize(receipt.status)} · Provider: ${capitalize(receipt.provider)} · Amount: ${formatCurrency(receipt.amountCents, receipt.currency)}` : "Receipt details will appear once the checkout session is finalized."}
+          </div>
 
-        <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-          <button type="button" onClick={onReturnHome} className="rounded-full border border-slate-200/70 bg-white px-5 py-3 text-sm text-slate-600">
-            Return home
-          </button>
-          <button type="button" onClick={onViewPurchased} disabled={!api} className="rounded-full bg-blue-400 px-5 py-3 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-slate-300">
-            View purchased content
-          </button>
-          <button type="button" onClick={onOpenReceipt} className="rounded-full border border-blue-100 bg-white px-5 py-3 text-sm font-medium text-blue-500">
-            View receipt
-          </button>
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+            <button type="button" onClick={onReturnHome} className="rounded-full border border-slate-200/70 bg-white px-5 py-3 text-sm text-slate-600">
+              Return home
+            </button>
+            <button type="button" onClick={onViewPurchased} disabled={!api} className="rounded-full bg-blue-400 px-5 py-3 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-slate-300">
+              View purchased content
+            </button>
+            <button type="button" onClick={onOpenReceipt} className="rounded-full border border-blue-100 bg-white px-5 py-3 text-sm font-medium text-blue-500">
+              View receipt
+            </button>
+          </div>
         </div>
       </div>
     </section>
@@ -2728,24 +2738,27 @@ function PaymentSuccessPage({
 
 function PaymentCancelledPage({ onTryAgain, onReturnHome }: { onTryAgain: () => void; onReturnHome: () => void }) {
   return (
-    <section className="mx-auto max-w-3xl py-8">
-      <div className="rounded-[32px] border border-slate-200/60 bg-white p-6 text-center shadow-[0_8px_22px_rgba(15,23,42,0.045)] md:p-10">
-        <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-amber-50 text-amber-600">
-          <svg viewBox="0 0 24 24" aria-hidden="true" className="h-10 w-10 fill-none stroke-current stroke-[2.5]">
-            <path d="M12 8v5" />
-            <path d="M12 17h.01" />
-            <path d="M10.3 4.5h3.4l8.2 14.2-1.7 3H3.8l-1.7-3z" />
-          </svg>
-        </div>
-        <h2 className="mt-6 text-3xl font-semibold tracking-tight text-slate-900">Payment cancelled</h2>
-        <p className="mt-3 text-sm leading-7 text-slate-600">No payment was processed. You can safely try again when you’re ready.</p>
-        <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
-          <button type="button" onClick={onTryAgain} className="rounded-full bg-blue-400 px-5 py-3 text-sm font-medium text-white">
-            Try again
-          </button>
-          <button type="button" onClick={onReturnHome} className="rounded-full border border-slate-200/70 bg-white px-5 py-3 text-sm text-slate-600">
-            Return home
-          </button>
+    <section className="mx-auto max-w-6xl py-8">
+      <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+        <PaymentScene variant="cancelled" api={null} receipt={null} />
+        <div className="rounded-[32px] border border-slate-200/60 bg-white p-6 text-center shadow-[0_8px_22px_rgba(15,23,42,0.045)] md:p-10">
+          <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-amber-50 text-amber-600">
+            <svg viewBox="0 0 24 24" aria-hidden="true" className="h-10 w-10 fill-none stroke-current stroke-[2.5]">
+              <path d="M12 8v5" />
+              <path d="M12 17h.01" />
+              <path d="M10.3 4.5h3.4l8.2 14.2-1.7 3H3.8l-1.7-3z" />
+            </svg>
+          </div>
+          <h2 className="mt-6 text-3xl font-semibold tracking-tight text-slate-900">Payment cancelled</h2>
+          <p className="mt-3 text-sm leading-7 text-slate-600">No payment was processed. You can safely try again when you’re ready.</p>
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
+            <button type="button" onClick={onTryAgain} className="rounded-full bg-blue-400 px-5 py-3 text-sm font-medium text-white">
+              Try again
+            </button>
+            <button type="button" onClick={onReturnHome} className="rounded-full border border-slate-200/70 bg-white px-5 py-3 text-sm text-slate-600">
+              Return home
+            </button>
+          </div>
         </div>
       </div>
     </section>
@@ -2766,39 +2779,169 @@ function PaymentProcessingPage({
   onCancel: () => void;
 }) {
   return (
-    <section className="mx-auto max-w-4xl py-8">
-      <div className="rounded-[32px] border border-slate-200/60 bg-white p-6 shadow-[0_8px_22px_rgba(15,23,42,0.045)] md:p-10">
-        <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-blue-50 text-blue-500">
-          <svg viewBox="0 0 24 24" aria-hidden="true" className="h-10 w-10 fill-none stroke-current stroke-[2.5]">
-            <circle cx="12" cy="12" r="8" />
-            <path d="M12 8v4l3 2" />
-          </svg>
-        </div>
-        <h2 className="mt-6 text-center text-3xl font-semibold tracking-tight text-slate-900">Payment processing</h2>
-        <p className="mt-3 text-center text-sm leading-7 text-slate-600">
-          We’re waiting for Square confirmation. If you’ve completed the checkout flow, verify the receipt here and the app will unlock the product immediately.
-        </p>
+    <section className="mx-auto max-w-6xl py-8">
+      <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+        <PaymentScene variant="processing" api={api} receipt={receipt} />
+        <div className="rounded-[32px] border border-slate-200/60 bg-white p-6 shadow-[0_8px_22px_rgba(15,23,42,0.045)] md:p-10">
+          <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-blue-50 text-blue-500">
+            <svg viewBox="0 0 24 24" aria-hidden="true" className="h-10 w-10 fill-none stroke-current stroke-[2.5]">
+              <circle cx="12" cy="12" r="8" />
+              <path d="M12 8v4l3 2" />
+            </svg>
+          </div>
+          <h2 className="mt-6 text-center text-3xl font-semibold tracking-tight text-slate-900">Payment processing</h2>
+          <p className="mt-3 text-center text-sm leading-7 text-slate-600">
+            We’re waiting for Square confirmation. If you’ve completed the checkout flow, verify the receipt here and the app will unlock the product immediately.
+          </p>
 
-        <div className="mt-8 grid gap-4 md:grid-cols-2">
-          <InfoRow label="API" value={receipt?.apiName ?? api?.name ?? "Selected product"} />
-          <InfoRow label="Receipt" value={receipt?.receiptNumber ?? "Waiting for receipt"} />
-          <InfoRow label="Status" value={receipt ? capitalize(receipt.status) : "Pending"} />
-          <InfoRow label="Provider" value={receipt ? capitalize(receipt.provider) : "Square"} />
-        </div>
+          <div className="mt-8 grid gap-4 md:grid-cols-2">
+            <InfoRow label="API" value={receipt?.apiName ?? api?.name ?? "Selected product"} />
+            <InfoRow label="Receipt" value={receipt?.receiptNumber ?? "Waiting for receipt"} />
+            <InfoRow label="Status" value={receipt ? capitalize(receipt.status) : "Pending"} />
+            <InfoRow label="Provider" value={receipt ? capitalize(receipt.provider) : "Square"} />
+          </div>
 
-        <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-          <button type="button" onClick={onVerify} className="rounded-full bg-blue-400 px-5 py-3 text-sm font-medium text-white">
-            Verify payment
-          </button>
-          <button type="button" onClick={onCancel} className="rounded-full border border-slate-200/70 bg-white px-5 py-3 text-sm text-slate-600">
-            Cancel payment
-          </button>
-          <button type="button" onClick={onReturnHome} className="rounded-full border border-blue-100 bg-white px-5 py-3 text-sm font-medium text-blue-500">
-            Return home
-          </button>
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+            <button type="button" onClick={onVerify} className="rounded-full bg-blue-400 px-5 py-3 text-sm font-medium text-white">
+              Verify payment
+            </button>
+            <button type="button" onClick={onCancel} className="rounded-full border border-slate-200/70 bg-white px-5 py-3 text-sm text-slate-600">
+              Cancel payment
+            </button>
+            <button type="button" onClick={onReturnHome} className="rounded-full border border-blue-100 bg-white px-5 py-3 text-sm font-medium text-blue-500">
+              Return home
+            </button>
+          </div>
         </div>
       </div>
     </section>
+  );
+}
+
+function PaymentScene({
+  variant,
+  api,
+  receipt,
+}: {
+  variant: "checkout" | "success" | "cancelled" | "processing";
+  api: ApiDefinition | null;
+  receipt: CheckoutReceipt | null;
+}) {
+  const title =
+    variant === "success"
+      ? "Order complete"
+      : variant === "cancelled"
+        ? "Checkout paused"
+        : variant === "processing"
+          ? "Verifying payment"
+          : "Secure payment";
+  const subtitle =
+    variant === "success"
+      ? "Your purchase is confirmed."
+      : variant === "cancelled"
+        ? "Nothing was charged."
+        : variant === "processing"
+          ? "Waiting for Square confirmation."
+          : "Square checkout opens in a new window.";
+  const accent =
+    variant === "success"
+      ? "from-emerald-100 via-white to-cyan-50"
+      : variant === "cancelled"
+        ? "from-amber-100 via-white to-orange-50"
+        : variant === "processing"
+          ? "from-blue-100 via-white to-cyan-50"
+          : "from-blue-100 via-white to-sky-50";
+
+  return (
+    <div className={`overflow-hidden rounded-[32px] border border-slate-200/60 bg-gradient-to-br ${accent} p-5 shadow-[0_8px_22px_rgba(15,23,42,0.045)] md:p-8`}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="inline-flex rounded-full border border-white/70 bg-white/80 px-3 py-1 text-xs font-medium text-slate-500 shadow-[0_2px_6px_rgba(15,23,42,0.04)]">
+          Payment scene
+        </div>
+        <div className="text-xs font-medium uppercase tracking-[0.2em] text-slate-400">{variant}</div>
+      </div>
+
+      <div className="mt-6 rounded-[28px] border border-white/70 bg-white/70 p-5 shadow-[0_12px_28px_rgba(15,23,42,0.06)] backdrop-blur">
+        <div className="flex items-start gap-4">
+          <div
+            className={`flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl ${
+              variant === "success" ? "bg-emerald-50 text-emerald-600" : variant === "cancelled" ? "bg-amber-50 text-amber-600" : "bg-blue-50 text-blue-500"
+            }`}
+          >
+            {variant === "success" ? (
+              <svg viewBox="0 0 24 24" aria-hidden="true" className="h-8 w-8 fill-none stroke-current stroke-[2.5]">
+                <path d="M4 12l5 5L20 6" />
+              </svg>
+            ) : variant === "cancelled" ? (
+              <svg viewBox="0 0 24 24" aria-hidden="true" className="h-8 w-8 fill-none stroke-current stroke-[2.5]">
+                <path d="M12 8v5" />
+                <path d="M12 17h.01" />
+                <path d="M10.3 4.5h3.4l8.2 14.2-1.7 3H3.8l-1.7-3z" />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 24 24" aria-hidden="true" className="h-8 w-8 fill-none stroke-current stroke-[2.5]">
+                <circle cx="12" cy="12" r="8" />
+                <path d="M12 8v4l3 2" />
+              </svg>
+            )}
+          </div>
+          <div className="min-w-0">
+            <div className="text-lg font-semibold tracking-tight text-slate-900">{title}</div>
+            <div className="mt-1 text-sm text-slate-600">{subtitle}</div>
+            <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-500">
+              <span className="rounded-full bg-white px-3 py-1 shadow-[0_2px_6px_rgba(15,23,42,0.04)]">{api?.name ?? receipt?.apiName ?? "Magnexis checkout"}</span>
+              <span className="rounded-full bg-white px-3 py-1 shadow-[0_2px_6px_rgba(15,23,42,0.04)]">{receipt?.receiptNumber ?? "Pending receipt"}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-6 grid gap-3 sm:grid-cols-2">
+          <div className="rounded-[24px] border border-slate-200/60 bg-white p-4">
+            <div className="text-xs uppercase tracking-[0.2em] text-slate-400">Payment card</div>
+            <div className="mt-3 rounded-[20px] bg-gradient-to-br from-slate-900 via-slate-800 to-slate-700 p-4 text-white shadow-[0_14px_24px_rgba(15,23,42,0.14)]">
+              <div className="flex items-center justify-between text-xs text-white/70">
+                <span>Square</span>
+                <span>Secure</span>
+              </div>
+              <div className="mt-4 text-sm font-medium">{variant === "success" ? "Paid" : variant === "cancelled" ? "Cancelled" : variant === "processing" ? "Pending" : "Ready"}</div>
+              <div className="mt-2 text-xl font-semibold tracking-tight">{receipt ? formatCurrency(receipt.amountCents, receipt.currency) : "$12.00"}</div>
+            </div>
+          </div>
+          <div className="rounded-[24px] border border-slate-200/60 bg-white p-4">
+            <div className="text-xs uppercase tracking-[0.2em] text-slate-400">Status panel</div>
+            <div className="mt-3 space-y-2 text-sm text-slate-600">
+              <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-3 py-2">
+                <span>API</span>
+                <span className="font-medium text-slate-900">{api?.requiredTier ? tierLabel(api.requiredTier) : "—"}</span>
+              </div>
+              <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-3 py-2">
+                <span>Receipt</span>
+                <span className="font-medium text-slate-900">{receipt ? "Recorded" : "Waiting"}</span>
+              </div>
+              <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-3 py-2">
+                <span>Provider</span>
+                <span className="font-medium text-slate-900">Square</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-6 overflow-hidden rounded-[24px] border border-slate-200/60 bg-white p-4">
+          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Visual reference</div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            <div className="rounded-[20px] bg-gradient-to-br from-blue-50 to-white p-4">
+              <div className="h-24 rounded-[16px] bg-gradient-to-br from-blue-400 via-cyan-300 to-sky-100 opacity-90" />
+            </div>
+            <div className="rounded-[20px] bg-gradient-to-br from-white to-slate-50 p-4">
+              <div className="h-24 rounded-[16px] border border-slate-200/60 bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.18),_transparent_60%),linear-gradient(135deg,_rgba(255,255,255,0.9),_rgba(255,255,255,0.7))]" />
+            </div>
+            <div className="rounded-[20px] bg-gradient-to-br from-emerald-50 to-white p-4">
+              <div className="h-24 rounded-[16px] bg-[linear-gradient(135deg,_rgba(16,185,129,0.9),_rgba(110,231,183,0.45))]" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
