@@ -214,6 +214,14 @@ function AppShell() {
   const [workflowDescription, setWorkflowDescription] = useState("");
   const [startupError, setStartupError] = useState<string | null>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [workspaceStatus, setWorkspaceStatus] = useState({ label: "Workspace synced", tone: "idle" as "idle" | "busy" | "success" | "error" });
+  const [workflowRunningIndex, setWorkflowRunningIndex] = useState<number | null>(null);
+  const [workflowRunningAll, setWorkflowRunningAll] = useState(false);
+  const [collectionSaving, setCollectionSaving] = useState(false);
+  const [requestSaving, setRequestSaving] = useState(false);
+  const [collectionDuplicating, setCollectionDuplicating] = useState<string | null>(null);
+  const [workflowDuplicating, setWorkflowDuplicating] = useState<string | null>(null);
+  const [pageMotionToken, setPageMotionToken] = useState(0);
   const collectionsImportRef = useRef<HTMLInputElement | null>(null);
   const workflowsImportRef = useRef<HTMLInputElement | null>(null);
   const selectedWorkflow = useMemo(() => workflows.find((workflow) => workflow.id === route.workflowId) ?? workflows[0] ?? null, [route.workflowId, workflows]);
@@ -496,23 +504,8 @@ function AppShell() {
 
   async function loadAll() {
     await waitForBackendReady();
-    const [
-      catalogResponse,
-      categoriesResponse,
-      collectionsResponse,
-      workflowsResponse,
-      healthResponse,
-      statsResponse,
-      recommendationsResponse,
-      billingConfigResponse,
-      recentSearchesResponse,
-      favoritesResponse,
-      savedRequestsResponse,
-      settingsResponse,
-      onboardingResponse,
-      accountResponse,
-      receiptsResponse,
-    ] = await Promise.all([
+    setWorkspaceStatus({ label: "Syncing workspace…", tone: "busy" });
+    const results = await Promise.allSettled([
       loadCatalog(),
       loadCategories(),
       loadCollections(),
@@ -530,6 +523,10 @@ function AppShell() {
       loadCheckoutReceipts(),
     ]);
 
+    const [catalogResponse, categoriesResponse, collectionsResponse, workflowsResponse, healthResponse, statsResponse, recommendationsResponse, billingConfigResponse, recentSearchesResponse, favoritesResponse, savedRequestsResponse, settingsResponse, onboardingResponse, accountResponse, receiptsResponse] = results.map((result) =>
+      result.status === "fulfilled" ? result.value : null,
+    );
+
     const catalogItems = Array.isArray(catalogResponse?.items) ? catalogResponse.items : [];
     const categoryItems = Array.isArray(categoriesResponse) ? categoriesResponse : [];
     const collectionItems = Array.isArray(collectionsResponse) ? collectionsResponse : [];
@@ -546,20 +543,21 @@ function AppShell() {
     setCategories(categoryItems);
     setCollections(collectionItems);
     setWorkflows(workflowItems);
-    setHealth(healthResponse);
-    setStats(statsResponse);
+    setHealth(healthResponse ?? {});
+    setStats(statsResponse ?? {});
     setRecommendations({ items: recommendationItems });
     setBillingConfig(billingConfigValue);
     setRecentSearches(searchItems);
     setFavorites(favoriteItems);
     setSavedRequests(savedRequestItems);
-    setSettings(settingsResponse);
-    setSettingsDraft(settingsResponse);
-    lastSavedSettingsRef.current = JSON.stringify(settingsResponse);
-    setOnboarding(onboardingResponse);
-    setAccount(accountResponse);
+    const onboardingValue = onboardingResponse ?? { completed: false, interests: [] };
+    const accountValue = accountResponse ?? { signedUp: false, apiCoinBalance: 0, apiCoinsClaimed: 0 };
+    const settingsValue = settingsResponse ?? DEFAULT_SETTINGS;
+    setOnboarding(onboardingValue);
+    setAccount(accountValue);
     setCheckoutReceipts(receiptItems);
-    setShowSignup(!accountResponse.signedUp);
+    setShowSignup(!accountValue.signedUp);
+    setWorkspaceStatus({ label: "Workspace synced", tone: "success" });
     setSelectedApi((current) => {
       if ((route.view === "catalog" || route.view === "playground") && route.apiId) {
         return catalogItems.find((item) => item.id === route.apiId) ?? current ?? catalogItems[0] ?? null;
@@ -579,6 +577,9 @@ function AppShell() {
       setWorkflowName(workflowItems[0]?.name ?? "");
       setWorkflowDescription(workflowItems[0]?.description ?? "");
     }
+    setSettings(settingsValue);
+    setSettingsDraft(settingsValue);
+    lastSavedSettingsRef.current = JSON.stringify(settingsValue);
   }
 
   async function refreshCatalog() {
@@ -601,6 +602,7 @@ function AppShell() {
       }
     }
     setLoadingApi(true);
+    setWorkspaceStatus({ label: `Running ${api.name}…`, tone: "busy" });
     try {
       const execution = await executeApi(api.id, safeJson(requestBody), safeJson(requestHeaders), safeJson(requestParams), useCoin);
       if ((execution.statusCode === 402 || execution.statusCode === 429 || execution.error) && !useCoin) {
@@ -617,6 +619,7 @@ function AppShell() {
       setResponse(execution);
       setRequestHistory((current) => [execution, ...current].slice(0, 12));
       setAccount(await loadAccount());
+      setWorkspaceStatus({ label: `${api.name} ran successfully`, tone: "success" });
       navigate({ view: "catalog", apiId: api.id, tab: activeApiTab });
     } finally {
       setLoadingApi(false);
@@ -624,19 +627,34 @@ function AppShell() {
   }
 
   async function saveSelectedApiToCollection() {
-    if (!selectedApi || !collectionName.trim()) {
+    if (!selectedApi) {
+      setWorkspaceStatus({ label: "Select an API first", tone: "error" });
       return;
     }
-    await saveCollection({
-      id: slugify(collectionName),
-      name: collectionName.trim(),
-      description: collectionDescription.trim(),
-      color: collectionTheme,
-      items: [{ apiId: selectedApi.id }],
-    });
-    setCollectionName("");
-    setCollectionDescription("");
-    await loadCollections().then(setCollections);
+    setCollectionSaving(true);
+    const targetCollection = selectedCollection ?? collections.find((collection) => collection.id === slugify(collectionName)) ?? null;
+    const collectionId = targetCollection?.id ?? slugify(collectionName || `${selectedApi.id}-collection`);
+    const name = collectionName.trim() || targetCollection?.name || `${selectedApi.name} Collection`;
+    const items = [...(targetCollection?.items ?? []).filter((item) => item.apiId !== selectedApi.id), { apiId: selectedApi.id }];
+    try {
+      await saveCollection({
+        id: collectionId,
+        name,
+        description: collectionDescription.trim() || targetCollection?.description,
+        color: collectionTheme,
+        items,
+      });
+      setWorkspaceStatus({ label: `Saved ${selectedApi.name} to ${name}`, tone: "success" });
+      if (!targetCollection) {
+        setCollectionName("");
+        setCollectionDescription("");
+      }
+      await loadCollections().then(setCollections);
+    } catch (error) {
+      setWorkspaceStatus({ label: error instanceof Error ? error.message : "Unable to save collection", tone: "error" });
+    } finally {
+      setCollectionSaving(false);
+    }
   }
 
   async function addFavorite(api: ApiDefinition) {
@@ -648,16 +666,24 @@ function AppShell() {
     if (!selectedApi) {
       return;
     }
-    await saveRequest({
-      id: `${selectedApi.id}-${Date.now()}`,
-      name: `${selectedApi.name} request`,
-      apiId: selectedApi.id,
-      method: requestMethod,
-      body: safeJson(requestBody),
-      headers: safeJson(requestHeaders),
-      query: safeJson(requestParams),
-    });
-    setSavedRequests(await loadSavedRequests());
+    setRequestSaving(true);
+    try {
+      await saveRequest({
+        id: `${selectedApi.id}-${Date.now()}`,
+        name: `${selectedApi.name} request`,
+        apiId: selectedApi.id,
+        method: requestMethod,
+        body: safeJson(requestBody),
+        headers: safeJson(requestHeaders),
+        query: safeJson(requestParams),
+      });
+      setWorkspaceStatus({ label: `Saved request for ${selectedApi.name}`, tone: "success" });
+      setSavedRequests(await loadSavedRequests());
+    } catch (error) {
+      setWorkspaceStatus({ label: error instanceof Error ? error.message : "Unable to save request", tone: "error" });
+    } finally {
+      setRequestSaving(false);
+    }
   }
 
   async function copyCurrentResponse() {
@@ -689,6 +715,7 @@ function AppShell() {
     setSettings(updated);
     setSettingsDraft(updated);
     lastSavedSettingsRef.current = JSON.stringify(updated);
+    setWorkspaceStatus({ label: "Settings saved", tone: "success" });
   }
 
   function promptCheckout(api: ApiDefinition, tier: Settings["subscription_tier"] = api.requiredTier) {
@@ -722,6 +749,7 @@ function AppShell() {
     }
     trackEvent("checkout_button_click", { apiId: api.id, tier: accessTier });
     setCheckoutError(null);
+    setWorkspaceStatus({ label: "Opening Square checkout…", tone: "busy" });
     try {
       const session = await startCheckout({ apiId: api.id, tier: accessTier as "pro" | "enterprise" });
       setCheckoutSession(session);
@@ -730,6 +758,7 @@ function AppShell() {
       openExternalUrl(session.accessUrl);
     } catch (error) {
       setCheckoutError(error instanceof Error ? error.message : "Unable to start access flow");
+      setWorkspaceStatus({ label: "Checkout could not start", tone: "error" });
     }
   }
 
@@ -740,6 +769,7 @@ function AppShell() {
     }
     const api = checkoutApi;
     setCheckoutError(null);
+    setWorkspaceStatus({ label: "Verifying payment…", tone: "busy" });
     try {
       const updated = await completeCheckout({ receiptId: receiptKey });
       setSettings(updated.settings);
@@ -749,9 +779,11 @@ function AppShell() {
       if (api) {
         setCheckoutApi(api);
       }
+      setWorkspaceStatus({ label: "Payment verified", tone: "success" });
       navigate({ view: "payment-success", apiId: updated.receipt.apiId ?? api?.id ?? route.apiId, receiptId: updated.receipt.id, paymentTier: updated.receipt.tier });
     } catch (error) {
       setCheckoutError(error instanceof Error ? error.message : "Unable to complete access flow");
+      setWorkspaceStatus({ label: "Payment verification failed", tone: "error" });
     }
   }
 
@@ -783,15 +815,39 @@ function AppShell() {
     if (!api) {
       return;
     }
-    const execution = await executeApi(api.id, safeJson(requestBody), safeJson(requestHeaders), safeJson(requestParams));
-    setWorkflowDraft((current) =>
-      current.map((item, stepIndex) => (stepIndex === index ? { ...item, status: "tested", result: JSON.stringify(execution.data).slice(0, 120) } : item)),
-    );
+    setWorkflowRunningIndex(index);
+    setWorkspaceStatus({ label: `Testing step ${index + 1}…`, tone: "busy" });
+    try {
+      const execution = await executeApi(api.id, safeJson(requestBody), safeJson(requestHeaders), safeJson(requestParams));
+      setWorkflowDraft((current) =>
+        current.map((item, stepIndex) => (stepIndex === index ? { ...item, status: "tested", result: JSON.stringify(execution.data).slice(0, 120) } : item)),
+      );
+      setWorkspaceStatus({ label: `Step ${index + 1} tested`, tone: "success" });
+    } catch (error) {
+      setWorkflowDraft((current) =>
+        current.map((item, stepIndex) =>
+          stepIndex === index
+            ? { ...item, status: "ready", result: error instanceof Error ? error.message : "Step execution failed" }
+            : item,
+        ),
+      );
+      setWorkspaceStatus({ label: error instanceof Error ? error.message : "Workflow step failed", tone: "error" });
+    } finally {
+      setWorkflowRunningIndex(null);
+    }
   }
 
   async function runFullWorkflow() {
-    for (let i = 0; i < workflowDraft.length; i += 1) {
-      await runWorkflowStep(i);
+    setWorkflowRunningAll(true);
+    setWorkspaceStatus({ label: "Running full workflow…", tone: "busy" });
+    try {
+      for (let i = 0; i < workflowDraft.length; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await runWorkflowStep(i);
+      }
+      setWorkspaceStatus({ label: "Workflow finished", tone: "success" });
+    } finally {
+      setWorkflowRunningAll(false);
     }
   }
 
@@ -800,12 +856,18 @@ function AppShell() {
     if (!source) {
       return;
     }
-    await saveCollection({
-      ...source,
-      id: `${source.id}-copy`,
-      name: `${source.name} Copy`,
-    });
-    await loadCollections().then(setCollections);
+    setCollectionDuplicating(collectionId);
+    try {
+      await saveCollection({
+        ...source,
+        id: `${source.id}-copy`,
+        name: `${source.name} Copy`,
+      });
+      setWorkspaceStatus({ label: `Duplicated ${source.name}`, tone: "success" });
+      await loadCollections().then(setCollections);
+    } finally {
+      setCollectionDuplicating(null);
+    }
   }
 
   async function duplicateWorkflow(workflowId: string) {
@@ -813,14 +875,20 @@ function AppShell() {
     if (!source) {
       return;
     }
+    setWorkflowDuplicating(workflowId);
     const payload = {
       id: `${source.id}-copy`,
       name: `${source.name} Copy`,
       description: source.description,
       steps: source.steps,
     };
-    await saveWorkflow(payload);
-    await loadWorkflows().then(setWorkflows);
+    try {
+      await saveWorkflow(payload);
+      setWorkspaceStatus({ label: `Duplicated ${source.name}`, tone: "success" });
+      await loadWorkflows().then(setWorkflows);
+    } finally {
+      setWorkflowDuplicating(null);
+    }
   }
 
   async function saveCurrentWorkflow() {
@@ -837,15 +905,21 @@ function AppShell() {
         outputMap: step.outputMap,
       })),
     };
-    const saved = (await saveWorkflow(payload)) as { id?: string; name?: string; description?: string; steps?: Array<string | { apiId: string; inputMap?: string; outputMap?: string }> } | undefined;
-    const refreshed = await loadWorkflows();
-    setWorkflows(refreshed);
-    const selected = refreshed.find((workflow) => workflow.id === (saved?.id ?? workflowId)) ?? refreshed[0] ?? null;
-    if (selected) {
-      setWorkflowDraft(buildWorkflowDraft(selected));
-      setWorkflowName(selected.name);
-      setWorkflowDescription(selected.description ?? "");
-      navigate({ view: "workflows", workflowId: selected.id });
+    setWorkspaceStatus({ label: `Saving workflow ${name}…`, tone: "busy" });
+    try {
+      const saved = (await saveWorkflow(payload)) as { id?: string; name?: string; description?: string; steps?: Array<string | { apiId: string; inputMap?: string; outputMap?: string }> } | undefined;
+      const refreshed = await loadWorkflows();
+      setWorkflows(refreshed);
+      const selected = refreshed.find((workflow) => workflow.id === (saved?.id ?? workflowId)) ?? refreshed[0] ?? null;
+      if (selected) {
+        setWorkflowDraft(buildWorkflowDraft(selected));
+        setWorkflowName(selected.name);
+        setWorkflowDescription(selected.description ?? "");
+        navigate({ view: "workflows", workflowId: selected.id });
+      }
+      setWorkspaceStatus({ label: `Saved ${name}`, tone: "success" });
+    } catch (error) {
+      setWorkspaceStatus({ label: error instanceof Error ? error.message : "Unable to save workflow", tone: "error" });
     }
   }
 
@@ -975,7 +1049,33 @@ function AppShell() {
                 >
                   Refresh
                 </button>
+                <div
+                  className={`hidden rounded-full px-4 py-3 text-sm font-medium xl:inline-flex ${workspaceStatus.tone === "busy" ? "app-status-pulse" : ""} ${
+                    workspaceStatus.tone === "busy"
+                      ? "bg-blue-50 text-blue-600"
+                      : workspaceStatus.tone === "success"
+                        ? "bg-emerald-50 text-emerald-700"
+                        : workspaceStatus.tone === "error"
+                          ? "bg-rose-50 text-rose-600"
+                          : "bg-slate-100 text-slate-600"
+                  }`}
+                >
+                  {workspaceStatus.label}
+                </div>
               </div>
+            </div>
+            <div
+              className={`mt-3 rounded-full px-4 py-2 text-xs font-medium xl:hidden ${
+                workspaceStatus.tone === "busy"
+                  ? "app-status-pulse bg-blue-50 text-blue-600"
+                  : workspaceStatus.tone === "success"
+                    ? "bg-emerald-50 text-emerald-700"
+                    : workspaceStatus.tone === "error"
+                      ? "bg-rose-50 text-rose-600"
+                      : "bg-slate-100 text-slate-600"
+              }`}
+            >
+              {workspaceStatus.label}
             </div>
             </header>
           ) : (
@@ -1038,6 +1138,7 @@ function AppShell() {
 
           <main className={`grid min-h-0 flex-1 gap-0 ${isPaymentView ? "grid-cols-1" : view === "playground" ? "xl:grid-cols-1" : "xl:grid-cols-[minmax(0,1fr)_540px]"}`}>
             <section className={`min-h-0 overflow-auto ${isPaymentView ? "px-4 py-8 md:px-8 md:py-10" : "px-4 py-5 md:px-6"}`}>
+              <div key={pageMotionToken} className="app-page-enter">
               {view === "checkout" && (
                 <CheckoutPage
                   api={paymentApi}
@@ -1181,6 +1282,8 @@ function AppShell() {
                     setCollectionDescription={setCollectionDescription}
                     collectionTheme={collectionTheme}
                     setCollectionTheme={setCollectionTheme}
+                    collectionSaving={collectionSaving}
+                    collectionDuplicating={collectionDuplicating}
                     onCreate={() => void saveSelectedApiToCollection()}
                     onDuplicate={(id) => void duplicateCollection(id)}
                     onExport={(id) => void exportCollection(id)}
@@ -1223,6 +1326,9 @@ function AppShell() {
                     catalog={catalog}
                     onRunStep={(index) => void runWorkflowStep(index)}
                     onRunAll={() => void runFullWorkflow()}
+                    workflowRunningIndex={workflowRunningIndex}
+                    workflowRunningAll={workflowRunningAll}
+                    workflowDuplicating={workflowDuplicating}
                     onSave={() => void saveCurrentWorkflow()}
                     onDuplicate={(id) => void duplicateWorkflow(id)}
                     onExport={(id) => void exportWorkflow(id)}
@@ -1266,6 +1372,7 @@ function AppShell() {
                   }}
                 />
               )}
+              </div>
             </section>
 
             {view !== "playground" && !isPaymentView && (
@@ -1677,17 +1784,17 @@ function CatalogPage({
             <h2 className="text-[22px] font-semibold tracking-tight text-slate-900">API Catalog</h2>
             <p className="text-sm text-slate-500">Browse Magnexis APIs like a polished cloud library.</p>
           </div>
-          <div className="text-sm text-slate-500">{totalResults} results</div>
+          <div className="text-sm text-slate-500">{totalResults === 0 && !query ? "Loading catalog…" : `${totalResults} results`}</div>
         </div>
 
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Select value={categoryFilter} onChange={setCategoryFilter} options={[{ value: "all", label: "All categories" }, ...categories.map((c) => ({ value: c.id, label: c.name }))]} />
           <Select value={methodFilter} onChange={setMethodFilter} options={[{ value: "all", label: "All methods" }, { value: "GET", label: "GET" }, { value: "POST", label: "POST" }]} />
           <Select value={complexityFilter} onChange={setComplexityFilter} options={[{ value: "all", label: "Any complexity" }, { value: "low", label: "Low" }, { value: "medium", label: "Medium" }, { value: "high", label: "High" }]} />
           <Select value={sort} onChange={setSort} options={[{ value: "popular", label: "Popular" }, { value: "a-z", label: "A-Z" }, { value: "newest", label: "Newest" }, { value: "fastest", label: "Fastest" }, { value: "recent", label: "Recently used" }]} />
         </div>
 
-        <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Select value={statusFilter} onChange={setStatusFilter} options={[{ value: "all", label: "Any status" }, { value: "featured", label: "Featured" }, { value: "recent", label: "Recently added" }, { value: "saved", label: "Saved" }]} />
           <input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="Search API name, endpoint, tag, or type" className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none" />
         </div>
@@ -1764,6 +1871,8 @@ function CollectionsPage({
   setCollectionDescription,
   collectionTheme,
   setCollectionTheme,
+  collectionSaving,
+  collectionDuplicating,
   onCreate,
   onDuplicate,
   onExport,
@@ -1780,6 +1889,8 @@ function CollectionsPage({
   setCollectionDescription: (value: string) => void;
   collectionTheme: string;
   setCollectionTheme: (value: string) => void;
+  collectionSaving: boolean;
+  collectionDuplicating: string | null;
   onCreate: () => void;
   onDuplicate: (id: string) => void;
   onExport: (id: string) => void;
@@ -1791,15 +1902,20 @@ function CollectionsPage({
   return (
     <div className="space-y-6">
       <section className="rounded-[28px] border border-slate-200/60 bg-white p-4 shadow-[0_6px_18px_rgba(15,23,42,0.04)]">
-        <h2 className="text-[22px] font-semibold tracking-tight text-slate-900">Collections</h2>
-        <p className="mt-2 text-sm text-slate-500">Like Google Drive folders, but for Magnexis APIs.</p>
-        <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="text-[22px] font-semibold tracking-tight text-slate-900">Collections</h2>
+            <p className="mt-2 text-sm text-slate-500">Like Google Drive folders, but for Magnexis APIs.</p>
+          </div>
+          {selectedCollection && <div className="inline-flex rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-600">Selected: {selectedCollection.name}</div>}
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <input value={collectionSearch} onChange={(event) => setCollectionSearch(event.target.value)} placeholder="Search collections" className="rounded-2xl border border-slate-200/70 bg-slate-50 px-4 py-3 text-sm outline-none" />
           <div className="text-sm text-slate-500">{collections.length} collections</div>
         </div>
       </section>
 
-      <section className="grid gap-3 lg:grid-cols-2">
+      <section className="grid gap-4 md:grid-cols-2">
         {filtered.map((collection) => (
           <article key={collection.id} className="rounded-[24px] border border-slate-200/60 bg-white p-5 shadow-[0_4px_14px_rgba(15,23,42,0.04)]">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -1812,8 +1928,8 @@ function CollectionsPage({
                 </div>
               </div>
               <div className="flex flex-col gap-2 sm:flex-row">
-                <button type="button" onClick={() => onDuplicate(collection.id)} className="rounded-full border border-slate-200/70 px-3 py-3 text-sm sm:py-2">
-                  Duplicate
+                <button type="button" onClick={() => onDuplicate(collection.id)} disabled={collectionDuplicating === collection.id} className="rounded-full border border-slate-200/70 px-3 py-3 text-sm disabled:cursor-not-allowed disabled:opacity-60 sm:py-2">
+                  {collectionDuplicating === collection.id ? "Duplicating…" : "Duplicate"}
                 </button>
                 <button type="button" onClick={() => onExport(collection.id)} className="rounded-full border border-slate-200/70 px-3 py-3 text-sm sm:py-2">
                   Export
@@ -1845,8 +1961,8 @@ function CollectionsPage({
           </select>
         </div>
         <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-          <button type="button" onClick={onCreate} className="w-full rounded-full bg-blue-500 px-4 py-3 text-sm font-medium text-white shadow-[0_6px_14px_rgba(66,133,244,0.09)] sm:w-auto sm:py-2">
-            Save selected API
+          <button type="button" onClick={onCreate} disabled={collectionSaving} className="w-full rounded-full bg-blue-500 px-4 py-3 text-sm font-medium text-white shadow-[0_6px_14px_rgba(66,133,244,0.09)] disabled:cursor-not-allowed disabled:bg-slate-300 sm:w-auto sm:py-2">
+            {collectionSaving ? "Saving…" : selectedCollection ? "Save selected API into collection" : "Save selected API"}
           </button>
           <button type="button" onClick={onImport} className="w-full rounded-full border border-slate-200/70 px-4 py-3 text-sm sm:w-auto sm:py-2">
             Import JSON
@@ -1881,6 +1997,9 @@ function WorkflowPage({
   catalog,
   onRunStep,
   onRunAll,
+  workflowRunningIndex,
+  workflowRunningAll,
+  workflowDuplicating,
   onSave,
   onDuplicate,
   onExport,
@@ -1899,6 +2018,9 @@ function WorkflowPage({
   catalog: ApiDefinition[];
   onRunStep: (index: number) => void;
   onRunAll: () => void;
+  workflowRunningIndex: number | null;
+  workflowRunningAll: boolean;
+  workflowDuplicating: string | null;
   onSave: () => void;
   onDuplicate: (id: string) => void;
   onExport: (id: string) => void;
@@ -1933,8 +2055,8 @@ function WorkflowPage({
             )}
           </div>
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-            <button type="button" onClick={onRunAll} className="w-full rounded-full bg-blue-500 px-4 py-3 text-sm font-medium text-white shadow-[0_6px_14px_rgba(66,133,244,0.09)] sm:w-auto sm:py-2">
-              Run full workflow
+            <button type="button" onClick={onRunAll} disabled={workflowRunningAll} className="w-full rounded-full bg-blue-500 px-4 py-3 text-sm font-medium text-white shadow-[0_6px_14px_rgba(66,133,244,0.09)] disabled:cursor-not-allowed disabled:bg-slate-300 sm:w-auto sm:py-2">
+              {workflowRunningAll ? "Running…" : "Run full workflow"}
             </button>
             <button type="button" onClick={onSave} className="w-full rounded-full border border-slate-200/70 px-4 py-3 text-sm sm:w-auto sm:py-2">
               Save workflow
@@ -1968,7 +2090,7 @@ function WorkflowPage({
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <div className="text-xs uppercase tracking-[0.25em] text-slate-400">Step {index + 1}</div>
-                <select value={step.apiId} onChange={(event) => setDraft(draft.map((item, itemIndex) => (itemIndex === index ? { ...item, apiId: event.target.value, status: "ready" } : item)))} className="mt-2 w-full max-w-[26rem] rounded-2xl border border-slate-200/70 bg-slate-50 px-4 py-3 text-sm">
+                <select value={step.apiId} onChange={(event) => setDraft(draft.map((item, itemIndex) => (itemIndex === index ? { ...item, apiId: event.target.value, status: "ready" } : item)))} className="mt-2 w-full max-w-none rounded-2xl border border-slate-200/70 bg-slate-50 px-4 py-3 text-sm md:max-w-[26rem]">
                   {(() => {
                     const current = catalog.find((api) => api.id === step.apiId);
                     const options = new Map<string, ApiDefinition>();
@@ -1994,8 +2116,8 @@ function WorkflowPage({
                 </button>
               </div>
               <div className="flex flex-col gap-2 sm:flex-row">
-                <button type="button" onClick={() => onRunStep(index)} className="rounded-full border border-slate-200/70 px-3 py-3 text-sm sm:py-2">
-                  Test step
+                <button type="button" onClick={() => onRunStep(index)} disabled={workflowRunningIndex === index} className="rounded-full border border-slate-200/70 px-3 py-3 text-sm disabled:cursor-not-allowed disabled:opacity-60 sm:py-2">
+                  {workflowRunningIndex === index ? "Testing…" : "Test step"}
                 </button>
               </div>
             </div>
@@ -2021,8 +2143,8 @@ function WorkflowPage({
                 <button type="button" onClick={() => onSelectWorkflow(workflow.id)} className="w-full rounded-full border border-slate-200/70 px-3 py-3 text-sm sm:w-auto sm:py-2">
                   Open
                 </button>
-                <button type="button" onClick={() => onDuplicate(workflow.id)} className="w-full rounded-full border border-slate-200/70 px-3 py-3 text-sm sm:w-auto sm:py-2">
-                  Duplicate
+                <button type="button" onClick={() => onDuplicate(workflow.id)} disabled={workflowDuplicating === workflow.id} className="w-full rounded-full border border-slate-200/70 px-3 py-3 text-sm disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:py-2">
+                  {workflowDuplicating === workflow.id ? "Duplicating…" : "Duplicate"}
                 </button>
                 <button type="button" onClick={() => onExport(workflow.id)} className="w-full rounded-full border border-slate-200/70 px-3 py-3 text-sm sm:w-auto sm:py-2">
                   Export
