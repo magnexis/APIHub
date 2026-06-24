@@ -8,6 +8,7 @@ import {
   loadCheckoutReceipts,
   loadAccount,
   loadCatalog,
+  loadCatalogItem,
   loadCategories,
   loadCollections,
   loadFavorites,
@@ -80,6 +81,14 @@ type SavedResult = {
   statusCode: number;
   savedAt: string;
   payload: Record<string, unknown>;
+};
+
+type CatalogPageData = {
+  items: ApiDefinition[];
+  total: number;
+  hasMore: boolean;
+  limit: number;
+  offset: number;
 };
 
 const ALL_INTERESTS = ["Developer Tools", "AI Utilities", "Business", "Game Dev", "Security", "Web Tools", "Data Tools"];
@@ -166,12 +175,16 @@ function AppShell() {
   const [selectedApi, setSelectedApi] = useState<ApiDefinition | null>(null);
   const [activeApiTab, setActiveApiTab] = useState<ApiTab>(initialRoute.tab ?? "overview");
   const [query, setQuery] = useState("");
-  const [catalogQuery, setCatalogQuery] = useState("");
+  const [catalogQuery, setCatalogQuery] = useState(initialRoute.search ?? "");
   const [sort, setSort] = useState<SortMode>("popular");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [methodFilter, setMethodFilter] = useState("all");
   const [complexityFilter, setComplexityFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [catalogTotal, setCatalogTotal] = useState(0);
+  const [catalogOffset, setCatalogOffset] = useState(0);
+  const [catalogHasMore, setCatalogHasMore] = useState(false);
+  const [catalogLoading, setCatalogLoading] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [health, setHealth] = useState<Record<string, unknown>>({});
   const [stats, setStats] = useState<Record<string, unknown>>({});
@@ -224,6 +237,9 @@ function AppShell() {
   const [pageMotionToken, setPageMotionToken] = useState(0);
   const collectionsImportRef = useRef<HTMLInputElement | null>(null);
   const workflowsImportRef = useRef<HTMLInputElement | null>(null);
+  const catalogPageCacheRef = useRef<Map<string, Map<number, CatalogPageData>>>(new Map());
+  const catalogRequestKeyRef = useRef("");
+  const catalogBootstrappedRef = useRef(false);
   const selectedWorkflow = useMemo(() => workflows.find((workflow) => workflow.id === route.workflowId) ?? workflows[0] ?? null, [route.workflowId, workflows]);
   const checkoutApi = useMemo(
     () => accessApi ?? catalog.find((item) => item.id === route.apiId) ?? selectedApi ?? null,
@@ -437,9 +453,29 @@ function AppShell() {
     persistLocal("magnexis-saved-results", savedResults);
   }, [savedResults]);
 
+  const catalogRequestKey = useMemo(
+    () => [
+      deferredCatalogQuery.trim().toLowerCase(),
+      categoryFilter,
+      methodFilter,
+      complexityFilter,
+      statusFilter,
+      sort,
+    ].join("|"),
+    [categoryFilter, complexityFilter, deferredCatalogQuery, methodFilter, sort, statusFilter],
+  );
+  const catalogPageSize = 120;
+
   useEffect(() => {
-    setCatalogLimit(120);
-  }, [deferredQuery, deferredCatalogQuery, categoryFilter, methodFilter, complexityFilter, statusFilter, sort]);
+    catalogRequestKeyRef.current = catalogRequestKey;
+  }, [catalogRequestKey]);
+
+  useEffect(() => {
+    if (!catalogBootstrappedRef.current) {
+      return;
+    }
+    void refreshCatalog();
+  }, [catalogRequestKey]);
 
   const catalogIndex = useMemo(
     () =>
@@ -465,8 +501,6 @@ function AppShell() {
       return matchesQuery && matchesCategory && matchesMethod && matchesComplexity && matchesStatus && matchesGlobalSearch;
     }).map(({ api }) => api);
   }, [catalogIndex, categoryFilter, complexityFilter, deferredCatalogQuery, deferredQuery, favorites, methodFilter, statusFilter]);
-
-  const visibleCatalog = useMemo(() => filteredCatalog.slice(0, catalogLimit), [catalogLimit, filteredCatalog]);
 
   const selectedCollection = useMemo(
     () => collections.find((collection) => collection.id === route.collectionId) ?? collections.find((collection) => collection.id === "developer-starter-pack") ?? collections[0] ?? null,
@@ -506,7 +540,7 @@ function AppShell() {
     await waitForBackendReady();
     setWorkspaceStatus({ label: "Syncing workspace…", tone: "busy" });
     const results = await Promise.allSettled([
-      loadCatalog(),
+      loadCatalog({ limit: catalogPageSize, offset: 0 }),
       loadCategories(),
       loadCollections(),
       loadWorkflows(),
@@ -528,6 +562,9 @@ function AppShell() {
     );
 
     const catalogItems = Array.isArray(catalogResponse?.items) ? catalogResponse.items : [];
+    const catalogTotalItems = typeof catalogResponse?.total === "number" ? catalogResponse.total : catalogItems.length;
+    const catalogHasMoreItems = typeof catalogResponse?.hasMore === "boolean" ? catalogResponse.hasMore : false;
+    const catalogOffsetValue = typeof catalogResponse?.offset === "number" ? catalogResponse.offset : 0;
     const categoryItems = Array.isArray(categoriesResponse) ? categoriesResponse : [];
     const collectionItems = Array.isArray(collectionsResponse) ? collectionsResponse : [];
     const workflowItems = Array.isArray(workflowsResponse) ? workflowsResponse : [];
@@ -540,6 +577,14 @@ function AppShell() {
 
     setStartupError(null);
     setCatalog(catalogItems);
+    setCatalogTotal(catalogTotalItems);
+    setCatalogOffset(catalogOffsetValue);
+    setCatalogHasMore(catalogHasMoreItems);
+    setCatalogLoading(false);
+    catalogPageCacheRef.current.set(
+      catalogRequestKey,
+      new Map([[0, { items: catalogItems, total: catalogTotalItems, hasMore: catalogHasMoreItems, limit: catalogPageSize, offset: catalogOffsetValue }]]),
+    );
     setCategories(categoryItems);
     setCollections(collectionItems);
     setWorkflows(workflowItems);
@@ -580,11 +625,113 @@ function AppShell() {
     setSettings(settingsValue);
     setSettingsDraft(settingsValue);
     lastSavedSettingsRef.current = JSON.stringify(settingsValue);
+    catalogBootstrappedRef.current = true;
+  }
+
+  function mergeCatalogItems(existing: ApiDefinition[], incoming: ApiDefinition[]) {
+    const merged = new Map<string, ApiDefinition>();
+    for (const item of existing) {
+      merged.set(item.id, item);
+    }
+    for (const item of incoming) {
+      merged.set(item.id, item);
+    }
+    return Array.from(merged.values());
+  }
+
+  async function prefetchCatalogPage(requestKey: string, offset: number) {
+    const cache = catalogPageCacheRef.current.get(requestKey) ?? new Map<number, CatalogPageData>();
+    if (cache.has(offset)) {
+      return;
+    }
+    try {
+      const response = await loadCatalog({
+        query: deferredCatalogQuery,
+        category: categoryFilter,
+        method: methodFilter,
+        complexity: complexityFilter,
+        status: statusFilter,
+        sort,
+        limit: catalogPageSize,
+        offset,
+      });
+      if (catalogRequestKeyRef.current !== requestKey) {
+        return;
+      }
+      const items = Array.isArray(response.items) ? response.items : [];
+      const total = typeof response.total === "number" ? response.total : items.length;
+      const limit = typeof response.limit === "number" ? response.limit : catalogPageSize;
+      const normalizedOffset = typeof response.offset === "number" ? response.offset : offset;
+      const hasMore = typeof response.hasMore === "boolean" ? response.hasMore : normalizedOffset + limit < total;
+      cache.set(normalizedOffset, { items, total, hasMore, limit, offset: normalizedOffset });
+      catalogPageCacheRef.current.set(requestKey, cache);
+    } catch {
+      // Prefetch is best-effort.
+    }
+  }
+
+  async function loadCatalogPage(nextOffset = 0, replace = false) {
+    const requestKey = catalogRequestKeyRef.current;
+    const cache = catalogPageCacheRef.current.get(requestKey) ?? new Map<number, CatalogPageData>();
+    const cachedPage = cache.get(nextOffset);
+
+    if (cachedPage) {
+      setCatalog((current) => (replace ? cachedPage.items : mergeCatalogItems(current, cachedPage.items)));
+      setCatalogTotal(cachedPage.total);
+      setCatalogOffset(cachedPage.offset);
+      setCatalogHasMore(cachedPage.hasMore);
+      setCatalogLoading(false);
+      if (cachedPage.hasMore && !cache.has(nextOffset + cachedPage.limit)) {
+        void prefetchCatalogPage(requestKey, nextOffset + cachedPage.limit);
+      }
+      return;
+    }
+
+    setCatalogLoading(true);
+    try {
+      const response = await loadCatalog({
+        query: deferredCatalogQuery,
+        category: categoryFilter,
+        method: methodFilter,
+        complexity: complexityFilter,
+        status: statusFilter,
+        sort,
+        limit: catalogPageSize,
+        offset: nextOffset,
+      });
+      if (catalogRequestKeyRef.current !== requestKey) {
+        return;
+      }
+      const items = Array.isArray(response.items) ? response.items : [];
+      const total = typeof response.total === "number" ? response.total : items.length;
+      const limit = typeof response.limit === "number" ? response.limit : catalogPageSize;
+      const offset = typeof response.offset === "number" ? response.offset : nextOffset;
+      const hasMore = typeof response.hasMore === "boolean" ? response.hasMore : offset + limit < total;
+      const nextCache = catalogPageCacheRef.current.get(requestKey) ?? new Map<number, CatalogPageData>();
+      nextCache.set(offset, { items, total, hasMore, limit, offset });
+      catalogPageCacheRef.current.set(requestKey, nextCache);
+      setCatalog((current) => (replace ? items : mergeCatalogItems(current, items)));
+      setCatalogTotal(total);
+      setCatalogOffset(offset);
+      setCatalogHasMore(hasMore);
+      if (hasMore && !nextCache.has(offset + limit)) {
+        void prefetchCatalogPage(requestKey, offset + limit);
+      }
+    } finally {
+      if (catalogRequestKeyRef.current === requestKey) {
+        setCatalogLoading(false);
+      }
+    }
   }
 
   async function refreshCatalog() {
-    const response = await loadCatalog(catalogQuery);
-    setCatalog(response.items);
+    const requestKey = catalogRequestKeyRef.current;
+    catalogPageCacheRef.current.delete(requestKey);
+    setCatalog([]);
+    setCatalogTotal(0);
+    setCatalogOffset(0);
+    setCatalogHasMore(false);
+    await loadCatalogPage(0, true);
   }
 
   async function runSelectedApi(api: ApiDefinition | null = selectedApi, useCoin = false) {

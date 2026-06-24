@@ -82,8 +82,38 @@ async function del<T>(path: string): Promise<T> {
   return request<T>(path, { method: "DELETE" });
 }
 
-export async function loadCatalog(query = ""): Promise<{ items: ApiDefinition[]; total: number; categories: Category[] }> {
-  return get("/api/catalog", { query });
+export async function loadCatalog(
+  options: {
+    query?: string;
+    category?: string;
+    method?: string;
+    complexity?: string;
+    tag?: string;
+    inputType?: string;
+    outputType?: string;
+    status?: string;
+    sort?: string;
+    limit?: number;
+    offset?: number;
+  } = {},
+): Promise<{ items: ApiDefinition[]; total: number; categories: Category[]; limit?: number; offset?: number; hasMore?: boolean }> {
+  return get("/api/catalog", {
+    query: options.query ?? "",
+    category: options.category,
+    method: options.method,
+    complexity: options.complexity,
+    tag: options.tag,
+    input_type: options.inputType,
+    output_type: options.outputType,
+    status: options.status,
+    sort: options.sort,
+    limit: options.limit,
+    offset: options.offset,
+  });
+}
+
+export async function loadCatalogItem(apiId: string): Promise<ApiDefinition> {
+  return get(`/api/catalog/${encodeURIComponent(apiId)}`);
 }
 
 export async function loadCategories(): Promise<Category[]> {

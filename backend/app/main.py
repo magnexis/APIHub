@@ -11,6 +11,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from pathlib import Path
 
+import uvicorn
+
 _BACKEND_ENV = Path(__file__).resolve().parents[1] / ".env"
 load_dotenv(_BACKEND_ENV)
 
@@ -173,6 +175,8 @@ def catalog(
     output_type: str | None = Query(default=None),
     status: str | None = Query(default=None),
     sort: str | None = Query(default=None),
+    limit: int = Query(default=1000, ge=1, le=5000),
+    offset: int = Query(default=0, ge=0),
 ) -> dict[str, Any]:
     items = search_registry(query=query, category=category, tag=tag, input_type=input_type, output_type=output_type)
     if method:
@@ -197,9 +201,14 @@ def catalog(
         items = sorted(items, key=lambda item: counts.get(item.id, 0), reverse=True)
     if query:
         add_recent_search(query)
+    total = len(items)
+    items = items[offset : offset + limit]
     return {
         "items": [item.model_dump() for item in items],
-        "total": len(items),
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "hasMore": offset + limit < total,
         "categories": api_categories(),
     }
 
@@ -481,3 +490,13 @@ def health_overview() -> dict[str, Any]:
         "favorites": get_favorites()[:8],
         "settings": get_settings(),
     }
+
+
+if __name__ == "__main__":
+    uvicorn.run(
+        "backend.app.main:app",
+        host="127.0.0.1",
+        port=int(os.getenv("MAGNEXIS_BACKEND_PORT", os.getenv("PORT", "8787"))),
+        reload=os.getenv("MAGNEXIS_BACKEND_RELOAD", "1") == "1",
+        log_level="info",
+    )

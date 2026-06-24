@@ -275,11 +275,11 @@ def init_db() -> None:
                 "local_port": 8787,
                 "auto_save_requests": True,
                 "telemetry": False,
-            "compact_mode": False,
-            "subscription_tier": "free",
-        }
-        for key, value in defaults.items():
-            _execute(conn, "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO NOTHING", (key, json.dumps(value)))
+                "compact_mode": False,
+                "subscription_tier": "free",
+            }
+            for key, value in defaults.items():
+                _execute(conn, "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO NOTHING", (key, json.dumps(value)))
         else:
             _execute(conn, "INSERT OR IGNORE INTO onboarding (id, completed, interests, created_at, updated_at) VALUES (1, 0, '[]', ?, ?)", (now, now))
             _execute(conn, "INSERT OR IGNORE INTO account (id, display_name, email, api_coin_balance, created_at, updated_at) VALUES (1, 'Unregistered', '', 0, ?, ?)", (now, now))
