@@ -782,12 +782,15 @@ def get_api_coin_balance() -> int:
 
 def spend_api_coin() -> bool:
     init_db()
+    now = _now()
     with db() as conn:
-        rows = _fetch_rows(_execute(conn, "SELECT api_coin_balance FROM account WHERE id = 1"))
-        if not rows or int(rows[0]["api_coin_balance"]) <= 0:
+        cursor = _execute(
+            conn,
+            "UPDATE account SET api_coin_balance = api_coin_balance - 1, updated_at = ? WHERE id = 1 AND api_coin_balance > 0",
+            (now,),
+        )
+        if cursor.rowcount == 0:
             return False
-        now = _now()
-        _execute(conn, "UPDATE account SET api_coin_balance = api_coin_balance - 1, updated_at = ? WHERE id = 1", (now,))
     return True
 
 
