@@ -463,9 +463,17 @@ def billing_checkout_start(payload: dict[str, Any]) -> dict[str, Any]:
 @app.post("/api/billing/checkout/complete")
 def billing_checkout_complete(payload: dict[str, Any]) -> dict[str, Any]:
     receipt_id = str(payload.get("receiptId", "")).strip()
+    payment_token = str(payload.get("paymentToken", "")).strip()
     if not receipt_id:
         raise HTTPException(status_code=400, detail="receiptId is required")
-    receipt = complete_checkout_receipt(receipt_id)
+    if not payment_token:
+        raise HTTPException(status_code=400, detail="paymentToken is required")
+    try:
+        receipt = complete_checkout_receipt(receipt_id, payment_token=payment_token)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
     if not receipt:
         raise HTTPException(status_code=404, detail="Receipt not found")
     return {"receipt": receipt, "settings": get_settings()}

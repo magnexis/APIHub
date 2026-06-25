@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sqlite3
+import urllib.request
+import urllib.error
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterator
+
+_logger = logging.getLogger(__name__)
 
 try:
     import psycopg
@@ -142,7 +147,8 @@ def init_db() -> None:
           provider TEXT NOT NULL,
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL,
-          completed_at TEXT
+          completed_at TEXT,
+          payment_token TEXT
         );
 
         CREATE TABLE IF NOT EXISTS onboarding (
@@ -235,7 +241,8 @@ def init_db() -> None:
           provider TEXT NOT NULL,
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL,
-          completed_at TEXT
+          completed_at TEXT,
+          payment_token TEXT
         );
 
         CREATE TABLE IF NOT EXISTS onboarding (
@@ -259,8 +266,18 @@ def init_db() -> None:
         if using_postgres():
             for statement in [part.strip() for part in schema.split(";") if part.strip()]:
                 conn.execute(statement)
+            # Migration: add payment_token column if missing
+            cols = {r[0] for r in conn.execute(
+                "SELECT column_name FROM information_schema.columns WHERE table_name = 'checkout_receipts'"
+            ).fetchall()}
+            if "payment_token" not in cols:
+                conn.execute("ALTER TABLE checkout_receipts ADD COLUMN payment_token TEXT")
         else:
             conn.executescript(schema)
+            # Migration: add payment_token column if missing
+            col_names = {r[1] for r in conn.execute("PRAGMA table_info(checkout_receipts)").fetchall()}
+            if "payment_token" not in col_names:
+                conn.execute("ALTER TABLE checkout_receipts ADD COLUMN payment_token TEXT")
         now = _now()
         if using_postgres():
             _execute(conn, "INSERT INTO onboarding (id, completed, interests, created_at, updated_at) VALUES (1, 0, '[]', ?, ?) ON CONFLICT (id) DO NOTHING", (now, now))
@@ -372,17 +389,68 @@ def create_checkout_receipt(
     return payload
 
 
-def complete_checkout_receipt(receipt_id: str) -> dict[str, Any] | None:
+def _verify_square_payment(payment_token: str, expected_amount_cents: int) -> dict[str, Any]:
+    """Verify a payment with the Square Payments API.
+
+    Requires SQUARE_ACCESS_TOKEN env var.  Returns the parsed payment
+    JSON on success or raises ValueError / RuntimeError.
+    """
+    access_token = os.getenv("SQUARE_ACCESS_TOKEN", "").strip()
+    if not access_token:
+        raise RuntimeError(
+            "SQUARE_ACCESS_TOKEN is not configured; cannot verify payments"
+        )
+    url = f"https://connect.squareup.com/v2/payments/{payment_token}"
+    req = urllib.request.Request(url, headers={
+        "Square-Version": "2025-04-16",
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode())
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode()
+        raise ValueError(f"Square verification failed (HTTP {exc.code}): {body}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"Could not reach Square API: {exc}") from exc
+
+    payment = data.get("payment", {})
+    status = payment.get("status", "")
+    amount_money = payment.get("amount_money", {})
+    actual_cents = int(amount_money.get("amount", 0))
+
+    if status != "COMPLETED":
+        raise ValueError(f"Payment {payment_token} is not completed (status={status})")
+    if actual_cents != expected_amount_cents:
+        raise ValueError(
+            f"Payment amount mismatch: expected {expected_amount_cents} cents, got {actual_cents} cents"
+        )
+    return data
+
+
+def complete_checkout_receipt(receipt_id: str, payment_token: str = "") -> dict[str, Any] | None:
     now = _now()
     with db() as conn:
         rows = _fetch_rows(_execute(conn, "SELECT * FROM checkout_receipts WHERE id = ?", (receipt_id,)))
         if not rows:
             return None
-        if using_postgres():
-            _execute(conn, "UPDATE checkout_receipts SET status = ?, updated_at = ?, completed_at = ? WHERE id = ?", ("paid", now, now, receipt_id))
-        else:
-            _execute(conn, "UPDATE checkout_receipts SET status = ?, updated_at = ?, completed_at = ? WHERE id = ?", ("paid", now, now, receipt_id))
-        _execute(conn, "UPDATE settings SET value = ? WHERE key = 'subscription_tier'", (json.dumps(rows[0]["tier"]),))
+        row = rows[0]
+        if row["status"] == "paid":
+            return get_checkout_receipt(receipt_id)
+
+        # Verify payment with Square before marking as paid
+        token = payment_token.strip()
+        if not token:
+            raise ValueError("paymentToken is required to complete checkout")
+        try:
+            _verify_square_payment(token, int(row["amount_cents"]))
+        except (ValueError, RuntimeError) as exc:
+            _logger.warning("Payment verification failed for receipt %s: %s", receipt_id, exc)
+            raise
+
+        _execute(conn, "UPDATE checkout_receipts SET status = ?, updated_at = ?, completed_at = ?, payment_token = ? WHERE id = ?", ("paid", now, now, token, receipt_id))
+        _execute(conn, "UPDATE settings SET value = ? WHERE key = 'subscription_tier'", (json.dumps(row["tier"]),))
     return get_checkout_receipt(receipt_id)
 
 
