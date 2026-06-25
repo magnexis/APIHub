@@ -36,6 +36,7 @@ backend/data/*.json
 backend/data/*.sqlite3
 backend/data/*.db
 backend/data/*.db-journal
+backend/data/electron-user-data/
 backend/data/state.json
 backend/data/registry.json
 private/
