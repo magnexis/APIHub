@@ -65,9 +65,9 @@ SQUARE_CANCEL_URL = os.getenv("SQUARE_CANCEL_URL", "").strip()
 
 def _allowed_origins() -> list[str]:
     configured = [origin.strip() for origin in os.getenv("MAGNEXIS_ALLOWED_ORIGINS", "").split(",") if origin.strip()]
-    if configured:
-        return configured
-    return ["*"]
+    if not configured:
+        configured = ["http://localhost:3000"]
+    return configured
 
 
 def _checkout_amount_cents(tier: str) -> int:
